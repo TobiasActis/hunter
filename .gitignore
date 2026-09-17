@@ -1,0 +1,14 @@
+# Datos reales -- nunca van a git (crecen sin parar, y son el activo real del proyecto, no código)
+hunter/data/*.db
+hunter/data/*.db-*
+hunter/data/*.joblib
+
+# Secretos locales
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+hunter/venv/

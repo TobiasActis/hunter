@@ -1,0 +1,11 @@
+[Unit]
+Description=HUNTER - reentrenamiento periodico de brain.py (aprender de los datos acumulados)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__PROJECT_DIR__/venv/bin/python train_brain.py
+StandardOutput=journal
+StandardError=journal

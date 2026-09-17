@@ -1,0 +1,21 @@
+[Unit]
+Description=HUNTER - detector de manadas en memecoins
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__PROJECT_DIR__
+# .env vive FUERA de git (ver .gitignore) -- el "-" al principio hace
+# que systemd no falle si el archivo todavía no existe. Acá vive
+# DASHBOARD_PASSWORD real (ver config/settings.py y .env.example).
+EnvironmentFile=-__PROJECT_DIR__/.env
+ExecStart=__PROJECT_DIR__/venv/bin/python __PROJECT_DIR__/main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
