@@ -21,7 +21,7 @@ from core.db import (
     init_db, get_conn, insert_transaction, insert_stampede_alert, get_token_created_at,
     get_wallet_prior_trade_count, update_alert_peak_wallet_count,
     insert_alert_wallets, get_wallet_win_rates, get_wallet_buy_amounts_for_token,
-    get_token_lifecycle, get_creator_track_record,
+    get_token_lifecycle, get_creator_track_record, get_early_buy_concentration,
 )
 from core.eth_price import fetch_eth_usd, refresh_loop as eth_price_refresh_loop
 from core.notifier import send_telegram, format_stampede_alert
@@ -137,6 +137,19 @@ async def run_listener(listener, detector: StampedeDetector):
                         f"tokens lanzados, {track_record['migration_rate']:.1%} graduaron."
                     )
 
+            # Concentración de compra temprana ("bundled") -- NUEVO
+            # 2026-09-17, la segunda señal sacada de estudiar el mismo
+            # trader real. Verificado con datos propios antes de usarlo:
+            # tokens con >70% del volumen de los primeros 60s en una
+            # sola wallet tuvieron win-rate de 6.7% contra 16.2% de los
+            # no concentrados (ver core/db.py::get_early_buy_concentration
+            # para la muestra exacta -- chica para el caso de alta
+            # concentración, por eso informativo, no filtro todavía).
+            early_buy_concentration = get_early_buy_concentration(
+                conn, alert["chain"], alert["token_address"],
+                token_row["created_at"] if token_row else None,
+            )
+
             # Cuántas veces vimos operar antes a cada una de las 5
             # wallets de la manada -- proxy de "wallet conocida" vs
             # "wallet nueva" mientras no tengamos el historial completo
@@ -238,6 +251,7 @@ async def run_listener(listener, detector: StampedeDetector):
                 min_wallet_buy_usd=min_wallet_buy_usd,
                 creator_tokens_created=creator_tokens_created,
                 creator_migration_rate=creator_migration_rate,
+                early_buy_concentration=early_buy_concentration,
             )
             # Wallets EXACTAS que causaron esta alerta -- se guardan acá
             # (2026-09-16) para poder actualizar wallet_stats con

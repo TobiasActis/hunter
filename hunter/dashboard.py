@@ -185,6 +185,7 @@ HTML_PAGE = """<!DOCTYPE html>
       <th>win-rate wallets</th>
       <th>compra ($)</th>
       <th>historial dev</th>
+      <th>bundled</th>
       <th>5m (%)</th><th>30m (%)</th><th>1h (%)</th><th>Estado</th><th></th>
     </tr></thead>
     <tbody id="alerts-body"></tbody>
@@ -465,7 +466,7 @@ function renderAlerts() {
   const alertsBody = document.getElementById("alerts-body");
   alertsBody.innerHTML = "";
   if (slice.length === 0) {
-    alertsBody.innerHTML = '<tr><td colspan="13" class="empty">Todavía no se detectó ninguna manada.</td></tr>';
+    alertsBody.innerHTML = '<tr><td colspan="14" class="empty">Todavía no se detectó ninguna manada.</td></tr>';
   }
   for (const a of slice) {
     const existing = lastData.positions.filter(
@@ -503,6 +504,14 @@ function renderAlerts() {
     const devText = (a.creator_tokens_created === null || a.creator_tokens_created === undefined)
       ? '<span class="mono">sin muestra</span>'
       : `${(a.creator_migration_rate * 100).toFixed(0)}% <span class="mono">(${a.creator_tokens_created} tokens)</span>`;
+    // "Bundled": % del volumen de compra de los primeros 60s que se
+    // llevó 1 sola wallet -- NUEVO 2026-09-17. >70% es la banda donde
+    // vimos peor win-rate con datos reales (ver core/db.py::
+    // get_early_buy_concentration), se resalta en rojo como aviso
+    // visual, no como filtro automático.
+    const bundledText = (a.early_buy_concentration === null || a.early_buy_concentration === undefined)
+      ? '<span class="mono">sin dato</span>'
+      : `<span class="mono"${a.early_buy_concentration > 0.70 ? ' style="color:#e05252"' : ''}>${(a.early_buy_concentration * 100).toFixed(0)}%</span>`;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${fmtTime(a.triggered_at)}</td>
@@ -513,6 +522,7 @@ function renderAlerts() {
       <td class="mono">${winRateText}</td>
       <td class="mono">${buyAmountText}</td>
       <td class="mono">${devText}</td>
+      <td>${bundledText}</td>
       <td class="mono">${fmtIntervalPctCell(a.price_after_5m, a.price_at_alert, a.triggered_at, 300)}</td>
       <td class="mono">${fmtIntervalPctCell(a.price_after_30m, a.price_at_alert, a.triggered_at, 1800)}</td>
       <td class="mono">${fmtIntervalPctCell(a.price_after_1h, a.price_at_alert, a.triggered_at, 3600)}</td>

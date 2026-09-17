@@ -8,7 +8,7 @@ el trade ganador, nunca las 9 alertas que no valieron nada.
 """
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from config.settings import DB_PATH
 
@@ -230,6 +230,7 @@ def _migrate(conn):
         "ALTER TABLE tokens ADD COLUMN creator TEXT",
         "ALTER TABLE stampede_alerts ADD COLUMN creator_tokens_created INTEGER",
         "ALTER TABLE stampede_alerts ADD COLUMN creator_migration_rate REAL",
+        "ALTER TABLE stampede_alerts ADD COLUMN early_buy_concentration REAL",
     ]
     for sql in migrations:
         try:
@@ -258,20 +259,64 @@ def insert_stampede_alert(conn, chain, token_address, wallet_count, window_secon
                            brain_predicted_prob=None,
                            avg_wallet_win_rate=None, min_wallet_win_rate=None,
                            avg_wallet_buy_usd=None, min_wallet_buy_usd=None,
-                           creator_tokens_created=None, creator_migration_rate=None) -> int:
+                           creator_tokens_created=None, creator_migration_rate=None,
+                           early_buy_concentration=None) -> int:
     cur = conn.execute(
         """INSERT INTO stampede_alerts
            (chain, token_address, wallet_count, window_seconds, triggered_at,
             price_at_alert, token_age_seconds, avg_wallet_prior_trades, min_wallet_prior_trades,
             peak_wallet_count, brain_predicted_prob, avg_wallet_win_rate, min_wallet_win_rate,
-            avg_wallet_buy_usd, min_wallet_buy_usd, creator_tokens_created, creator_migration_rate)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            avg_wallet_buy_usd, min_wallet_buy_usd, creator_tokens_created, creator_migration_rate,
+            early_buy_concentration)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (chain, token_address, wallet_count, window_seconds, now_iso(),
          price_at_alert, token_age_seconds, avg_wallet_prior_trades, min_wallet_prior_trades,
          wallet_count, brain_predicted_prob, avg_wallet_win_rate, min_wallet_win_rate,
-         avg_wallet_buy_usd, min_wallet_buy_usd, creator_tokens_created, creator_migration_rate),
+         avg_wallet_buy_usd, min_wallet_buy_usd, creator_tokens_created, creator_migration_rate,
+         early_buy_concentration),
     )
     return cur.lastrowid
+
+
+EARLY_BUY_WINDOW_SECONDS = 60
+
+
+def get_early_buy_concentration(conn, chain: str, token_address: str, created_at: str | None) -> float | None:
+    """Qué fracción del volumen comprado (USD) en los primeros
+    EARLY_BUY_WINDOW_SECONDS de vida del token se llevó la wallet que
+    MÁS compró -- proxy de "bundled" (dev/insiders acumulando con varias
+    wallets propias antes de que entren compradores orgánicos), señal
+    real de un trader que estudiamos (2026-09-17). Verificado con datos
+    propios antes de usarlo: tokens con >70% de concentración temprana
+    tuvieron win-rate de 6.7% contra 16.2% de los no concentrados
+    (n=15 vs 173 -- muestra chica para el caso de alta concentración,
+    por eso queda informativo, no como filtro). None si no hay
+    `created_at` conocido o hay menos de 2 compras tempranas registradas."""
+    if not created_at:
+        return None
+    try:
+        created_dt = datetime.fromisoformat(created_at)
+    except (ValueError, TypeError):
+        return None
+    window_end = (created_dt + timedelta(seconds=EARLY_BUY_WINDOW_SECONDS)).isoformat()
+
+    buys = conn.execute(
+        """SELECT wallet, amount_usd FROM transactions
+           WHERE chain = ? AND token_address = ? AND side = 'buy'
+             AND detected_at >= ? AND detected_at <= ?
+             AND amount_usd IS NOT NULL""",
+        (chain, token_address, created_at, window_end),
+    ).fetchall()
+    if len(buys) < 2:
+        return None
+
+    total_volume = sum(b["amount_usd"] for b in buys)
+    if total_volume <= 0:
+        return None
+    per_wallet: dict[str, float] = {}
+    for b in buys:
+        per_wallet[b["wallet"]] = per_wallet.get(b["wallet"], 0) + b["amount_usd"]
+    return max(per_wallet.values()) / total_volume
 
 
 def get_wallet_buy_amounts_for_token(conn, chain: str, token_address: str,
