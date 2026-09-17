@@ -57,14 +57,24 @@ async def open_position(chain: str, token_address: str, amount_usd: float = DEFA
     return {"id": position_id, "token_address": token_address, "entry_price": entry_price, "amount_usd": amount_usd}
 
 
-async def sell_partial(position_id: int, fraction: float, reason: str) -> dict | None:
+async def sell_partial(position_id: int, fraction: float, reason: str, exit_price: float | None = None) -> dict | None:
     """
     Vende `fraction` del tamaño ORIGINAL de la posición (0 < fraction <= 1,
-    y <= lo que quede abierto) al precio de mercado actual. Si fraction
-    cubre todo lo que quedaba, la posición queda 'closed' sola (ver
-    core/db.py::record_partial_exit). None si no se pudo obtener precio
-    o si no hay nada que vender.
-    """
+    y <= lo que quede abierto). Si fraction cubre todo lo que quedaba, la
+    posición queda 'closed' sola (ver core/db.py::record_partial_exit).
+    None si no se pudo obtener precio o si no hay nada que vender.
+
+    `exit_price` (2026-09-17): si el caller YA consultó el precio actual
+    para decidir vender (auto_trader.py -- stop-loss/take-profit/trailing
+    stop deciden mirando el precio), hay que pasarlo acá en vez de dejar
+    que esta función pida uno NUEVO. Bug real encontrado en producción:
+    dos fetches independientes (uno para decidir, otro acá adentro para
+    ejecutar) podían devolver precios distintos si el feed tenía un
+    glitch entre medio -- se vio un caso con multiplier=3237x etiquetado
+    "stop_loss" (imposible: stop-loss solo dispara si el precio CAYÓ),
+    que infló el PnL total en +$8154 sobre datos falsos. Si no se pasa
+    (ej. cierre manual del dashboard, o la red de seguridad de 1h que no
+    mira precio para decidir), se pide uno fresco como antes."""
     with get_conn() as conn:
         position = get_paper_position(conn, position_id)
 
@@ -75,7 +85,8 @@ async def sell_partial(position_id: int, fraction: float, reason: str) -> dict |
     if fraction <= 1e-9:
         return None
 
-    exit_price = await fetch_current_price(position["chain"], position["token_address"])
+    if exit_price is None:
+        exit_price = await fetch_current_price(position["chain"], position["token_address"])
     if exit_price is None:
         logger.warning(f"No se pudo vender posición paper #{position_id}: sin precio disponible.")
         return None

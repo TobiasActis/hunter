@@ -154,7 +154,7 @@ async def _manage_open_position(position) -> None:
     if STOP_LOSS_REASON not in already_triggered:
         drawdown_from_entry = 1 - multiplier
         if drawdown_from_entry >= STOP_LOSS_PCT:
-            result = await sell_partial(position["id"], current["remaining_fraction"], STOP_LOSS_REASON)
+            result = await sell_partial(position["id"], current["remaining_fraction"], STOP_LOSS_REASON, exit_price=current_price)
             if result:
                 logger.info(
                     f"Auto-trader: STOP-LOSS en posición #{position['id']} -- "
@@ -177,7 +177,7 @@ async def _manage_open_position(position) -> None:
             if fresh is None or fresh["status"] != "open":
                 return
             fraction_of_original = fraction_of_remaining * fresh["remaining_fraction"]
-            result = await sell_partial(position["id"], fraction_of_original, reason)
+            result = await sell_partial(position["id"], fraction_of_original, reason, exit_price=current_price)
             if result:
                 logger.info(
                     f"Auto-trader: TOMA DE GANANCIA ({reason}) en posición #{position['id']} "
@@ -194,7 +194,7 @@ async def _manage_open_position(position) -> None:
         drawdown_from_peak = (peak - current_price) / peak if peak else 0
         if drawdown_from_peak >= TRAILING_STOP_PCT:
             result = await sell_partial(
-                position["id"], current["remaining_fraction"], TRAILING_STOP_REASON
+                position["id"], current["remaining_fraction"], TRAILING_STOP_REASON, exit_price=current_price
             )
             if result:
                 logger.info(
