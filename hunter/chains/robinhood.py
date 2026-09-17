@@ -221,11 +221,18 @@ class RobinhoodListener(ChainListener):
         for log in launch_logs:
             token = "0x" + log["topics"][1][-40:]
             curve = "0x" + log["topics"][2][-40:]
+            # topics[3]: tercer address indexado del evento, no
+            # documentado -- confirmado el 2026-09-17 con datos reales
+            # (una misma wallet apareciendo acá en 5 TokenLaunched
+            # distintos dentro de una ventana chica de bloques, algo que
+            # no pasaría si fuera un valor por-token). Es el creador/
+            # deployer, no el token ni la curva.
+            creator = "0x" + log["topics"][3][-40:] if len(log["topics"]) > 3 else None
             self._curve_to_token[curve.lower()] = token.lower()
             self._token_decimals[token.lower()] = await self._fetch_decimals(client, token)
             created_iso = await self._get_block_timestamp_iso(client, log)
             with get_conn() as conn:
-                upsert_token_created(conn, self.name, token.lower(), created_iso)
+                upsert_token_created(conn, self.name, token.lower(), created_iso, creator=creator.lower() if creator else None)
 
         # 2. Graduaciones (bonding curve -> pool líquido) -- para medir
         # "tiempo hasta graduación" con datos propios, no ajenos.

@@ -69,8 +69,13 @@ def _handle_message(raw_msg: str):
         return  # mensajes de confirmación de suscripción, etc.
 
     if tx_type == "create":
+        # traderPublicKey en un mensaje "create" es quien deployó el
+        # token -- confirmado en vivo el 2026-09-17 contra el WS real de
+        # PumpPortal (mismo campo que ya usábamos para buy/sell, acá
+        # identifica al creador en vez de al comprador).
+        creator = data.get("traderPublicKey")
         with get_conn() as conn:
-            upsert_token_created(conn, CHAIN, mint, _now_iso())
+            upsert_token_created(conn, CHAIN, mint, _now_iso(), creator=creator)
     elif tx_type == "migrate":
         with get_conn() as conn:
             upsert_token_graduated(conn, CHAIN, mint, _now_iso())

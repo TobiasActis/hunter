@@ -21,6 +21,7 @@ from core.db import (
     init_db, get_conn, insert_transaction, insert_stampede_alert, get_token_created_at,
     get_wallet_prior_trade_count, update_alert_peak_wallet_count,
     insert_alert_wallets, get_wallet_win_rates, get_wallet_buy_amounts_for_token,
+    get_token_lifecycle, get_creator_track_record,
 )
 from core.eth_price import fetch_eth_usd, refresh_loop as eth_price_refresh_loop
 from core.notifier import send_telegram, format_stampede_alert
@@ -114,6 +115,27 @@ async def run_listener(listener, detector: StampedeDetector):
             if created_at:
                 created_dt = datetime.fromisoformat(created_at)
                 token_age_seconds = (datetime.now(timezone.utc) - created_dt).total_seconds()
+
+            # Historial del CREADOR del token (no de las wallets
+            # compradoras) -- NUEVO 2026-09-17, inspirado en ver a un
+            # trader real chequear cuántos tokens previos de un dev
+            # llegaron a graduar antes de comprar ("3 de 1300" como red
+            # flag). A diferencia del win-rate de wallets, acá "éxito"
+            # es objetivo y verificable on-chain (¿graduó o no?), no
+            # depende de si nosotros ganamos plata. Puramente
+            # informativo todavía -- ver MIN_TOKENS_FOR_CREATOR_TRACK_RECORD.
+            creator_tokens_created = None
+            creator_migration_rate = None
+            token_row = get_token_lifecycle(conn, alert["chain"], alert["token_address"])
+            if token_row and token_row["creator"]:
+                track_record = get_creator_track_record(conn, alert["chain"], token_row["creator"])
+                if track_record:
+                    creator_tokens_created = track_record["tokens_created"]
+                    creator_migration_rate = track_record["migration_rate"]
+                    logger.info(
+                        f"Historial del creador (informativo): {track_record['tokens_created']} "
+                        f"tokens lanzados, {track_record['migration_rate']:.1%} graduaron."
+                    )
 
             # Cuántas veces vimos operar antes a cada una de las 5
             # wallets de la manada -- proxy de "wallet conocida" vs
@@ -214,6 +236,8 @@ async def run_listener(listener, detector: StampedeDetector):
                 min_wallet_win_rate=min_wallet_win_rate,
                 avg_wallet_buy_usd=avg_wallet_buy_usd,
                 min_wallet_buy_usd=min_wallet_buy_usd,
+                creator_tokens_created=creator_tokens_created,
+                creator_migration_rate=creator_migration_rate,
             )
             # Wallets EXACTAS que causaron esta alerta -- se guardan acá
             # (2026-09-16) para poder actualizar wallet_stats con

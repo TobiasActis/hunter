@@ -70,8 +70,27 @@ CREATE TABLE IF NOT EXISTS tokens (
     token_address TEXT NOT NULL,
     created_at TEXT,
     graduated_at TEXT,
+    -- Wallet que DEPLOYÓ el token -- agregado 2026-09-17 después de ver
+    -- (en un stream real de un trader de memecoins) que chequea cuántos
+    -- tokens previos de un dev llegaron a graduar antes de comprar
+    -- ("3 de 1300 migrados" como red flag inmediata). A diferencia del
+    -- win-rate de wallets COMPRADORAS (wallet_stats, depende de si
+    -- NOSOTROS ganamos plata), esto es una señal más objetiva: ¿el
+    -- token del creador llegó a graduar, sí o no? Verificado con datos
+    -- reales de Robinhood Chain (topics[3] de TokenLaunched, no
+    -- documentado, confirmado viendo una wallet lanzar 5 tokens en la
+    -- misma ventana de bloques) y de Solana (traderPublicKey en el
+    -- mensaje "create" de PumpPortal, confirmado en vivo).
+    creator TEXT,
     PRIMARY KEY (chain, token_address)
 );
+-- El índice sobre `creator` NO puede ir acá: en una DB que ya existía
+-- antes de este cambio, la tabla `tokens` de arriba (CREATE TABLE IF
+-- NOT EXISTS) no toca la tabla real, y la columna `creator` recién se
+-- agrega en _migrate() -- crear el índice ACÁ rompía con
+-- "no such column: creator" en cualquier DB previa (bug real,
+-- encontrado desplegando el 2026-09-17). Se crea al final de
+-- _migrate(), después del ALTER TABLE.
 
 CREATE TABLE IF NOT EXISTS wallet_stats (
     wallet TEXT PRIMARY KEY,
@@ -208,6 +227,9 @@ def _migrate(conn):
         "ALTER TABLE stampede_alerts ADD COLUMN min_wallet_win_rate REAL",
         "ALTER TABLE stampede_alerts ADD COLUMN avg_wallet_buy_usd REAL",
         "ALTER TABLE stampede_alerts ADD COLUMN min_wallet_buy_usd REAL",
+        "ALTER TABLE tokens ADD COLUMN creator TEXT",
+        "ALTER TABLE stampede_alerts ADD COLUMN creator_tokens_created INTEGER",
+        "ALTER TABLE stampede_alerts ADD COLUMN creator_migration_rate REAL",
     ]
     for sql in migrations:
         try:
@@ -215,6 +237,10 @@ def _migrate(conn):
         except sqlite3.OperationalError as e:
             if "duplicate column" not in str(e).lower():
                 raise
+
+    # Recién ACÁ existe con certeza la columna `creator` (ya sea porque
+    # la tabla se creó de cero arriba, o por el ALTER TABLE de arriba).
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tokens_creator ON tokens(chain, creator)")
 
 
 def insert_transaction(conn, chain, wallet, token_address, side, amount_usd, price, tx_hash):
@@ -231,18 +257,19 @@ def insert_stampede_alert(conn, chain, token_address, wallet_count, window_secon
                            avg_wallet_prior_trades=None, min_wallet_prior_trades=None,
                            brain_predicted_prob=None,
                            avg_wallet_win_rate=None, min_wallet_win_rate=None,
-                           avg_wallet_buy_usd=None, min_wallet_buy_usd=None) -> int:
+                           avg_wallet_buy_usd=None, min_wallet_buy_usd=None,
+                           creator_tokens_created=None, creator_migration_rate=None) -> int:
     cur = conn.execute(
         """INSERT INTO stampede_alerts
            (chain, token_address, wallet_count, window_seconds, triggered_at,
             price_at_alert, token_age_seconds, avg_wallet_prior_trades, min_wallet_prior_trades,
             peak_wallet_count, brain_predicted_prob, avg_wallet_win_rate, min_wallet_win_rate,
-            avg_wallet_buy_usd, min_wallet_buy_usd)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            avg_wallet_buy_usd, min_wallet_buy_usd, creator_tokens_created, creator_migration_rate)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (chain, token_address, wallet_count, window_seconds, now_iso(),
          price_at_alert, token_age_seconds, avg_wallet_prior_trades, min_wallet_prior_trades,
          wallet_count, brain_predicted_prob, avg_wallet_win_rate, min_wallet_win_rate,
-         avg_wallet_buy_usd, min_wallet_buy_usd),
+         avg_wallet_buy_usd, min_wallet_buy_usd, creator_tokens_created, creator_migration_rate),
     )
     return cur.lastrowid
 
@@ -354,16 +381,50 @@ def get_wallet_prior_trade_count(conn, chain: str, wallet: str, before_iso: str)
     return row["c"]
 
 
-def upsert_token_created(conn, chain: str, token_address: str, created_at: str):
+def upsert_token_created(conn, chain: str, token_address: str, created_at: str, creator: str | None = None):
     """Registra cuándo se creó un token -- solo la PRIMERA vez que lo vemos
-    (COALESCE preserva el valor existente si ya lo habíamos registrado)."""
+    (COALESCE preserva el valor existente si ya lo habíamos registrado).
+    `creator` (2026-09-17): wallet que deployó el token -- ver comentario
+    en SCHEMA sobre por qué importa (historial del dev, no del comprador)."""
     conn.execute(
-        """INSERT INTO tokens (chain, token_address, created_at)
-           VALUES (?, ?, ?)
+        """INSERT INTO tokens (chain, token_address, created_at, creator)
+           VALUES (?, ?, ?, ?)
            ON CONFLICT(chain, token_address) DO UPDATE SET
-             created_at = COALESCE(tokens.created_at, excluded.created_at)""",
-        (chain, token_address, created_at),
+             created_at = COALESCE(tokens.created_at, excluded.created_at),
+             creator = COALESCE(tokens.creator, excluded.creator)""",
+        (chain, token_address, created_at, creator),
     )
+
+
+# Mínimo de tokens lanzados antes de confiar en la tasa de graduación de
+# un creador -- mismo criterio que MIN_ALERTS_FOR_WALLET_WIN_RATE (con
+# 1 o 2 tokens no hay muestra, es ruido). El streamer que inspiró esto
+# miraba "3 de 1300" como red flag; acá el piso es más bajo porque
+# recién estamos empezando a acumular este dato (2026-09-17).
+MIN_TOKENS_FOR_CREATOR_TRACK_RECORD = 3
+
+
+def get_creator_track_record(conn, chain: str, creator: str) -> dict | None:
+    """Cuántos tokens lanzó este creador y qué fracción llegó a graduar
+    (bonding curve -> pool líquido) -- señal objetiva y verificable
+    on-chain, a diferencia del win-rate de wallets COMPRADORAS (que
+    depende de si NOSOTROS ganamos plata). None si no hay muestra
+    mínima todavía (no confundir "no sabemos" con "mal historial")."""
+    if not creator:
+        return None
+    row = conn.execute(
+        """SELECT COUNT(*) tokens_created,
+                  SUM(CASE WHEN graduated_at IS NOT NULL THEN 1 ELSE 0 END) tokens_migrated
+           FROM tokens WHERE chain = ? AND creator = ?""",
+        (chain, creator),
+    ).fetchone()
+    if row is None or row["tokens_created"] < MIN_TOKENS_FOR_CREATOR_TRACK_RECORD:
+        return None
+    return {
+        "tokens_created": row["tokens_created"],
+        "tokens_migrated": row["tokens_migrated"] or 0,
+        "migration_rate": (row["tokens_migrated"] or 0) / row["tokens_created"],
+    }
 
 
 def upsert_token_graduated(conn, chain: str, token_address: str, graduated_at: str):

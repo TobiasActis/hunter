@@ -184,6 +184,7 @@ HTML_PAGE = """<!DOCTYPE html>
       <th>brain.py</th>
       <th>win-rate wallets</th>
       <th>compra ($)</th>
+      <th>historial dev</th>
       <th>5m (%)</th><th>30m (%)</th><th>1h (%)</th><th>Estado</th><th></th>
     </tr></thead>
     <tbody id="alerts-body"></tbody>
@@ -464,7 +465,7 @@ function renderAlerts() {
   const alertsBody = document.getElementById("alerts-body");
   alertsBody.innerHTML = "";
   if (slice.length === 0) {
-    alertsBody.innerHTML = '<tr><td colspan="12" class="empty">Todavía no se detectó ninguna manada.</td></tr>';
+    alertsBody.innerHTML = '<tr><td colspan="13" class="empty">Todavía no se detectó ninguna manada.</td></tr>';
   }
   for (const a of slice) {
     const existing = lastData.positions.filter(
@@ -495,6 +496,13 @@ function renderAlerts() {
     const buyAmountText = (a.avg_wallet_buy_usd === null || a.avg_wallet_buy_usd === undefined)
       ? '<span class="mono">sin dato</span>'
       : `$${a.avg_wallet_buy_usd.toFixed(0)} <span class="mono">(mín: $${a.min_wallet_buy_usd.toFixed(0)})</span>`;
+    // Historial del creador del token -- NUEVO 2026-09-17, inspirado en
+    // ver a un trader real chequear esto antes de comprar (cuántos
+    // tokens previos de un dev graduaron). Objetivo y verificable
+    // on-chain, a diferencia de las demás columnas informativas.
+    const devText = (a.creator_tokens_created === null || a.creator_tokens_created === undefined)
+      ? '<span class="mono">sin muestra</span>'
+      : `${(a.creator_migration_rate * 100).toFixed(0)}% <span class="mono">(${a.creator_tokens_created} tokens)</span>`;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${fmtTime(a.triggered_at)}</td>
@@ -504,6 +512,7 @@ function renderAlerts() {
       <td class="mono">${brainText}</td>
       <td class="mono">${winRateText}</td>
       <td class="mono">${buyAmountText}</td>
+      <td class="mono">${devText}</td>
       <td class="mono">${fmtIntervalPctCell(a.price_after_5m, a.price_at_alert, a.triggered_at, 300)}</td>
       <td class="mono">${fmtIntervalPctCell(a.price_after_30m, a.price_at_alert, a.triggered_at, 1800)}</td>
       <td class="mono">${fmtIntervalPctCell(a.price_after_1h, a.price_at_alert, a.triggered_at, 3600)}</td>
