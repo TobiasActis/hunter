@@ -634,7 +634,7 @@ async function refresh() {
     `<span class="badge ${data.mode}">${data.mode}</span>`;
   document.getElementById("sol-price").textContent =
     data.sol_usd !== null ? "$" + data.sol_usd.toFixed(2) : "--";
-  document.getElementById("alert-count").textContent = data.alerts.length;
+  document.getElementById("alert-count").textContent = data.stats.alert_total;
 
   const viewStatus = document.getElementById("view-status");
   const showAllBtn = document.getElementById("show-all-btn");
@@ -646,14 +646,15 @@ async function refresh() {
     showAllBtn.hidden = true;
   }
 
-  const openPositions = data.positions.filter(p => p.status === "open");
-  // PnL REALIZADO: suma pnl_usd de TODAS las posiciones, abiertas o
-  // cerradas -- con ventas parciales, una posición 'open' puede tener
-  // ganancia ya embolsada de una toma de ganancias, no solo las 'closed'.
-  const totalPnl = data.positions.reduce((sum, p) => sum + (p.pnl_usd || 0), 0);
-  document.getElementById("open-count").textContent = openPositions.length;
+  // Totales calculados por el servidor sobre TODA la base y SIN las
+  // posiciones con anomalías de precio (ver _build_api_data).
+  const st = data.stats;
+  const totalPnl = st.pnl_total;
+  document.getElementById("open-count").textContent = st.open_count;
   const pnlEl = document.getElementById("closed-pnl");
+  const wr = st.win_rate !== null ? ` · win-rate ${(st.win_rate * 100).toFixed(1)}%` : "";
   pnlEl.textContent = (totalPnl >= 0 ? "+$" : "-$") + Math.abs(totalPnl).toFixed(2);
+  pnlEl.title = `${st.closed_count} cerradas${wr} · ${st.anomalies_excluded} excluidas por anomalía de precio`;
   pnlEl.className = "value " + (totalPnl >= 0 ? "pnl-pos" : "pnl-neg");
 
   renderAlerts();
@@ -779,6 +780,17 @@ def _build_api_data() -> dict:
                 "SELECT * FROM paper_positions ORDER BY id DESC LIMIT ?", (POSITIONS_LIMIT,)
             ).fetchall()
 
+        # Posiciones con una salida marcada como anomalía de precio (ver
+        # core/token_price.py: DexScreener en otra unidad daba
+        # multiplicadores de 100x-6937x). Su pnl_usd es FALSO -- inflaba
+        # el PnL mostrado a +$82k cuando el real es ~-$8k -- así que se
+        # excluyen de los totales y no se muestran como ganancia.
+        anomaly_ids = {
+            r["position_id"] for r in conn.execute(
+                "SELECT DISTINCT position_id FROM paper_position_exits "
+                "WHERE reason LIKE '%_price_anomaly'")
+        }
+
         positions = []
         for row in position_rows:
             p = dict(row)
@@ -786,10 +798,37 @@ def _build_api_data() -> dict:
                 p = _with_unrealized_pnl(conn, p)
             else:
                 p = _with_pnl_pct(p)
-
+            if p["id"] in anomaly_ids:
+                p["price_anomaly"] = True
+                p["pnl_usd"] = None
+                p["pnl_pct"] = None
             positions.append(p)
 
+        # Totales sobre TODA la base (no solo lo que se carga en la
+        # tabla): las tarjetas de arriba antes sumaban solo las filas
+        # cargadas, y "Alertas" pasó a mostrar el tope de carga (600).
+        where_a, where_p, args = "", "", ()
+        if cutoff:
+            where_a, where_p, args = "WHERE triggered_at > ?", "WHERE opened_at > ?", (cutoff,)
+        alert_total = conn.execute(f"SELECT COUNT(*) c FROM stampede_alerts {where_a}", args).fetchone()["c"]
+        pnl_total, closed_n, wins, open_n = 0.0, 0, 0, 0
+        for r in conn.execute(f"SELECT id, status, pnl_usd FROM paper_positions {where_p}", args):
+            if r["id"] in anomaly_ids:
+                continue
+            pnl_total += r["pnl_usd"] or 0
+            if r["status"] == "open":
+                open_n += 1
+            else:
+                closed_n += 1
+                wins += 1 if (r["pnl_usd"] or 0) > 0 else 0
+        stats = {
+            "alert_total": alert_total, "pnl_total": pnl_total,
+            "closed_count": closed_n, "win_rate": (wins / closed_n) if closed_n else None,
+            "open_count": open_n, "anomalies_excluded": len(anomaly_ids),
+        }
+
     return {
+        "stats": stats,
         "mode": MODE,
         "sol_usd": get_cached_sol_usd(),
         "default_position_usd": DEFAULT_POSITION_USD,
