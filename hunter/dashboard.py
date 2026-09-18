@@ -16,6 +16,8 @@ hasta tener resultados consistentes acá.
 """
 import logging
 import secrets
+import threading
+import time
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
@@ -145,7 +147,7 @@ HTML_PAGE = """<!DOCTYPE html>
 </head>
 <body>
   <h1>HUNTER</h1>
-  <div class="sub">Detector de manadas -- se refresca solo cada 1s -- horarios en Buenos Aires (UTC-3)</div>
+  <div class="sub">Detector de manadas -- se refresca solo cada 5s -- horarios en Buenos Aires (UTC-3)</div>
   <div class="paper-banner">
     Paper trading: los botones "Comprar"/"Cerrar" simulan operaciones a precio
     de mercado real, SIN plata real. Nada acá firma una transacción de verdad.
@@ -659,7 +661,7 @@ async function refresh() {
 }
 
 refresh();
-setInterval(refresh, 1000);
+setInterval(refresh, 5000);
 </script>
 </body>
 </html>
@@ -724,39 +726,57 @@ def _with_unrealized_pnl(conn, position: dict) -> dict:
     return position
 
 
-@app.get("/api/data")
-async def api_data():
+# Cache de la respuesta de /api/data. BUG REAL (2026-09-18): con la base
+# en 448 MB, esta consulta tardaba 53-64 SEGUNDOS (ORDER BY detected_at
+# sin índice = recorrer toda `transactions`, más 3.2 MB de JSON), el
+# navegador la pedía cada 1s desde 6 pestañas, y como corría en el hilo
+# principal congelaba los listeners: Robinhood se atrasaba miles de
+# bloques y se perdían transacciones. Ahora: ordena por la clave primaria
+# (instantáneo), límites chicos, corre en un thread aparte (endpoint
+# `def`, no `async def`), y se calcula como mucho una vez cada
+# _CACHE_TTL segundos sin importar cuántas pestañas haya abiertas.
+_CACHE_TTL = 3.0
+_cache = {"t": 0.0, "data": None}
+_cache_lock = threading.Lock()
+
+ALERTS_LIMIT = 1000
+TRANSACTIONS_LIMIT = 200
+POSITIONS_LIMIT = 2000
+
+
+def _build_api_data() -> dict:
     with get_conn() as conn:
         # "Limpiar vista" (ver /api/view/reset) NUNCA borra nada de la
         # DB -- solo guarda desde qué momento mostrar en el navegador.
         # brain.py sigue entrenando con la tabla completa, sin filtro.
         cutoff = get_setting(conn, "view_cutoff_at")
 
-        # LIMIT alto (no "todo") -- el filtro/orden/paginado real se hace
-        # en el navegador (ver dashboard, sortAlerts/sortPositions) para
-        # no tener que ir y volver al servidor por cada cambio de página
-        # u orden. 2000 alcanza para semanas de uso sin ser pesado.
+        # ORDER BY id DESC (clave primaria, cronológica porque las
+        # columnas de fecha son "cuándo se insertó") en vez de ordenar por
+        # fecha: no necesita índice ni ordenar millones de filas.
         if cutoff:
             alerts = conn.execute(
                 "SELECT * FROM stampede_alerts WHERE triggered_at > ? "
-                "ORDER BY triggered_at DESC LIMIT 2000", (cutoff,),
+                "ORDER BY id DESC LIMIT ?", (cutoff, ALERTS_LIMIT),
             ).fetchall()
             txs = conn.execute(
                 "SELECT * FROM transactions WHERE detected_at > ? "
-                "ORDER BY detected_at DESC LIMIT 2000", (cutoff,),
+                "ORDER BY id DESC LIMIT ?", (cutoff, TRANSACTIONS_LIMIT),
             ).fetchall()
             position_rows = conn.execute(
                 "SELECT * FROM paper_positions WHERE opened_at > ? "
-                "ORDER BY opened_at DESC LIMIT 2000", (cutoff,),
+                "ORDER BY id DESC LIMIT ?", (cutoff, POSITIONS_LIMIT),
             ).fetchall()
         else:
             alerts = conn.execute(
-                "SELECT * FROM stampede_alerts ORDER BY triggered_at DESC LIMIT 2000"
+                "SELECT * FROM stampede_alerts ORDER BY id DESC LIMIT ?", (ALERTS_LIMIT,)
             ).fetchall()
             txs = conn.execute(
-                "SELECT * FROM transactions ORDER BY detected_at DESC LIMIT 2000"
+                "SELECT * FROM transactions ORDER BY id DESC LIMIT ?", (TRANSACTIONS_LIMIT,)
             ).fetchall()
-            position_rows = get_paper_positions(conn, limit=2000)
+            position_rows = conn.execute(
+                "SELECT * FROM paper_positions ORDER BY id DESC LIMIT ?", (POSITIONS_LIMIT,)
+            ).fetchall()
 
         positions = []
         for row in position_rows:
@@ -777,6 +797,16 @@ async def api_data():
         "transactions": [dict(row) for row in txs],
         "positions": positions,
     }
+
+
+@app.get("/api/data")
+def api_data():
+    with _cache_lock:
+        now = time.monotonic()
+        if _cache["data"] is None or now - _cache["t"] >= _CACHE_TTL:
+            _cache["data"] = _build_api_data()
+            _cache["t"] = time.monotonic()
+        return _cache["data"]
 
 
 @app.post("/api/view/reset")
