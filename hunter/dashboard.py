@@ -14,6 +14,7 @@ wallet real. Es la validación que pide el README antes de poder pensar
 en ejecución real: MODE se queda en "alert_only" en config/settings.py
 hasta tener resultados consistentes acá.
 """
+import json
 import logging
 import secrets
 import threading
@@ -21,7 +22,7 @@ import time
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from config.settings import MODE, DASHBOARD_USERNAME, DASHBOARD_PASSWORD
@@ -739,7 +740,7 @@ _CACHE_TTL = 3.0
 _cache = {"t": 0.0, "data": None}
 _cache_lock = threading.Lock()
 
-ALERTS_LIMIT = 1000
+ALERTS_LIMIT = 600
 TRANSACTIONS_LIMIT = 200
 POSITIONS_LIMIT = 2000
 
@@ -801,12 +802,17 @@ def _build_api_data() -> dict:
 
 @app.get("/api/data")
 def api_data():
+    # Se serializa a JSON UNA vez, acá adentro (thread), y se devuelven
+    # los bytes ya listos: si se devuelve un dict, FastAPI lo convierte
+    # (jsonable_encoder) en el hilo principal, y con ~2 MB en esta
+    # máquina eso solo tardaba varios segundos congelando los listeners.
     with _cache_lock:
         now = time.monotonic()
         if _cache["data"] is None or now - _cache["t"] >= _CACHE_TTL:
-            _cache["data"] = _build_api_data()
+            _cache["data"] = json.dumps(_build_api_data(), default=str).encode("utf-8")
             _cache["t"] = time.monotonic()
-        return _cache["data"]
+        body = _cache["data"]
+    return Response(content=body, media_type="application/json")
 
 
 @app.post("/api/view/reset")
