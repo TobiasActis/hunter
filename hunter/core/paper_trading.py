@@ -24,7 +24,7 @@ import asyncio
 import logging
 
 from config.settings import (
-    SIM_BANKROLL_USD, SIM_POSITION_USD, SIM_ENTRY_LATENCY_S, SIM_EXIT_LATENCY_S,
+    SIM_BANKROLL_USD, SIM_ENFORCE_CAPITAL, SIM_POSITION_USD, SIM_ENTRY_LATENCY_S, SIM_EXIT_LATENCY_S,
 )
 from core.db import (
     get_conn, open_paper_position, get_paper_position, record_partial_exit, get_setting,
@@ -91,7 +91,7 @@ async def open_position(chain: str, token_address: str, amount_usd: float = DEFA
     # con varias aperturas concurrentes no se puede gastar dos veces lo mismo.
     with get_conn() as conn:
         cash = free_cash_usd(conn)
-        if cash < amount_usd:
+        if SIM_ENFORCE_CAPITAL and cash < amount_usd:
             logger.info(f"Sin capital libre (${cash:.2f} < ${amount_usd:.2f}) -- no se abre {token_address}.")
             return {"skipped": "sin_capital"}
         depth = curve_depth_usd(conn, chain, token_address)

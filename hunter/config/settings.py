@@ -71,7 +71,9 @@ DASHBOARD_HOST = "0.0.0.0"
 # nada), pero ahora se comporta como una cuenta real: capital limitado,
 # tamaño de posición realista, slippage medido de la curva (ver
 # core/slippage.py), comisiones de la cadena y latencia de ejecución.
-SIM_BANKROLL_USD = 2000.0       # capital simulado total
+SIM_BANKROLL_USD = 2000.0       # capital simulado de referencia (para ver cuánto se usa / cuánto se ganó o perdió)
+SIM_ENFORCE_CAPITAL = False     # False = margen infinito: se opera todo lo que pase el filtro aunque la cuenta simulada
+                                # quede en negativo (pedido del dueño: lo que importa es aprender, no un tope de capital)
 SIM_POSITION_USD = 50.0         # tamaño por posición (2.5% del capital)
 SIM_ENTRY_LATENCY_S = 2.0       # segundos entre la alerta y el llenado de la compra
 SIM_EXIT_LATENCY_S = 1.5        # segundos entre la decisión de vender y el llenado

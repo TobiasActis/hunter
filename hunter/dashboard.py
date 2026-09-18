@@ -655,7 +655,7 @@ async function refresh() {
   const pnlEl = document.getElementById("closed-pnl");
   const wr = st.win_rate !== null ? ` · win-rate ${(st.win_rate * 100).toFixed(1)}%` : "";
   pnlEl.textContent = (totalPnl >= 0 ? "+$" : "-$") + Math.abs(totalPnl).toFixed(2);
-  pnlEl.title = `${st.closed_count} cerradas${wr} · ${st.anomalies_excluded} excluidas por anomalía de precio · capital libre $${st.cash_free_usd.toFixed(0)} de $${st.bankroll_usd.toFixed(0)}`;
+  pnlEl.title = `${st.closed_count} cerradas${wr} · ${st.anomalies_excluded} excluidas por anomalía de precio · caja simulada $${st.cash_free_usd.toFixed(0)} (referencia $${st.bankroll_usd.toFixed(0)}, sin tope de capital)`;
   pnlEl.className = "value " + (totalPnl >= 0 ? "pnl-pos" : "pnl-neg");
 
   renderAlerts();
