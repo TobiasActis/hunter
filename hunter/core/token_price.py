@@ -30,6 +30,8 @@ logger = logging.getLogger("hunter.token_price")
 
 DEXSCREENER_URL = "https://api.dexscreener.com/latest/dex/tokens/{token_address}"
 
+MAX_PRICE_DEVIATION = 5.0  # DexScreener vs último precio on-chain propio, ver fetch_current_price
+
 
 async def fetch_token_price_sol(token_address: str) -> float | None:
     """
@@ -69,11 +71,31 @@ async def fetch_current_price(chain: str, token_address: str) -> float | None:
     `transactions`. None solo si ninguna de las dos fuentes tiene dato.
     """
     price = await fetch_token_price_sol(token_address)
-    if price is not None:
-        return price
 
     with get_conn() as conn:
         fallback = get_last_transaction_price(conn, chain, token_address)
+
+    if price is not None:
+        # BUG REAL (2026-09-18): DexScreener empezó a indexar tokens ya
+        # graduados de Robinhood Chain, pero su priceNative NO viene en
+        # la misma unidad que nuestro precio on-chain propio (que es el
+        # que se usó para la ENTRADA). Mezclar las dos fuentes daba
+        # multiplicadores de 100x a 6,937x en ~16 posiciones (0.5% del
+        # total) que inflaban el PnL en +$95k sobre datos falsos. Se
+        # verificó que el 97.5% de las salidas normales SÍ coincide con
+        # el precio propio (+-40%), así que el problema es puntual: si
+        # DexScreener se desvía más de MAX_PRICE_DEVIATION del último
+        # precio propio, no se le cree.
+        if fallback is not None and fallback > 0:
+            ratio = price / fallback
+            if ratio > MAX_PRICE_DEVIATION or ratio < 1 / MAX_PRICE_DEVIATION:
+                logger.warning(
+                    f"DexScreener ({price:.4g}) se desvía {ratio:.1f}x del precio propio "
+                    f"({fallback:.4g}) para {token_address} ({chain}) -- se ignora, "
+                    f"se usa el precio propio."
+                )
+                return fallback
+        return price
 
     if fallback is not None:
         logger.info(
