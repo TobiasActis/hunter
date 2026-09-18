@@ -22,9 +22,13 @@ archivo, que solo importa y llama a train(), es el que hay que correr
 import logging
 
 from core.brain import train
+from core.entry_filter import train as train_entry_filter
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    # Filtro de entrada aprendido de los datos propios (2026-09-18) --
+    # se reentrena a diario junto con brain.py, con todo lo acumulado.
+    train_entry_filter()
     result = train()
     if result is None:
         print("\n⏳ Todavía no hay suficientes datos. Esto es esperable el primer día --")

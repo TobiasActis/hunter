@@ -231,6 +231,8 @@ def _migrate(conn):
         "ALTER TABLE stampede_alerts ADD COLUMN creator_tokens_created INTEGER",
         "ALTER TABLE stampede_alerts ADD COLUMN creator_migration_rate REAL",
         "ALTER TABLE stampede_alerts ADD COLUMN early_buy_concentration REAL",
+        "ALTER TABLE stampede_alerts ADD COLUMN entry_score REAL",
+        "ALTER TABLE stampede_alerts ADD COLUMN entry_decision TEXT",
     ]
     for sql in migrations:
         try:
@@ -400,6 +402,16 @@ def record_wallet_outcomes(conn, chain: str, wallets: list[str], won: bool, pnl_
                    last_updated = excluded.last_updated""",
             (wallet, chain, 1 if won else 0, pnl_usd, 1.0 if won else 0.0, now_iso()),
         )
+
+
+def update_alert_entry_decision(conn, alert_id: int, score, decision: str):
+    """Guarda qué decidió core/entry_filter.py para esta alerta ('pass' |
+    'explore' | 'skip' | 'nofilter') -- se registra TAMBIÉN lo descartado,
+    para poder medir en vivo si el filtro realmente sirve."""
+    conn.execute(
+        "UPDATE stampede_alerts SET entry_score = ?, entry_decision = ? WHERE id = ?",
+        (score, decision, alert_id),
+    )
 
 
 def update_alert_peak_wallet_count(conn, alert_id: int, peak_wallet_count: int):

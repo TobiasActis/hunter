@@ -186,6 +186,7 @@ HTML_PAGE = """<!DOCTYPE html>
       <th>compra ($)</th>
       <th>historial dev</th>
       <th>bundled</th>
+      <th>filtro</th>
       <th>5m (%)</th><th>30m (%)</th><th>1h (%)</th><th>Estado</th><th></th>
     </tr></thead>
     <tbody id="alerts-body"></tbody>
@@ -466,7 +467,7 @@ function renderAlerts() {
   const alertsBody = document.getElementById("alerts-body");
   alertsBody.innerHTML = "";
   if (slice.length === 0) {
-    alertsBody.innerHTML = '<tr><td colspan="14" class="empty">Todavía no se detectó ninguna manada.</td></tr>';
+    alertsBody.innerHTML = '<tr><td colspan="15" class="empty">Todavía no se detectó ninguna manada.</td></tr>';
   }
   for (const a of slice) {
     const existing = lastData.positions.filter(
@@ -512,6 +513,14 @@ function renderAlerts() {
     const bundledText = (a.early_buy_concentration === null || a.early_buy_concentration === undefined)
       ? '<span class="mono">sin dato</span>'
       : `<span class="mono"${a.early_buy_concentration > 0.70 ? ' style="color:#e05252"' : ''}>${(a.early_buy_concentration * 100).toFixed(0)}%</span>`;
+    // Filtro de entrada aprendido (core/entry_filter.py, 2026-09-18):
+    // pass = operada, explore = descartada pero operada igual para
+    // medir el filtro, skip = registrada sin operar.
+    const decLabels = {pass: "operada", explore: "explora", skip: "descartada", nofilter: "sin filtro"};
+    const decColor = {pass: "#2ecc71", explore: "#f1c40f", skip: "#e05252"};
+    const filterText = (!a.entry_decision || a.entry_decision === "nofilter")
+      ? '<span class="mono">--</span>'
+      : `<span class="mono" style="color:${decColor[a.entry_decision] || "inherit"}">${decLabels[a.entry_decision] || a.entry_decision}${(a.entry_score !== null && a.entry_score !== undefined) ? " " + a.entry_score.toFixed(2) : ""}</span>`;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${fmtTime(a.triggered_at)}</td>
@@ -523,6 +532,7 @@ function renderAlerts() {
       <td class="mono">${buyAmountText}</td>
       <td class="mono">${devText}</td>
       <td>${bundledText}</td>
+      <td>${filterText}</td>
       <td class="mono">${fmtIntervalPctCell(a.price_after_5m, a.price_at_alert, a.triggered_at, 300)}</td>
       <td class="mono">${fmtIntervalPctCell(a.price_after_30m, a.price_at_alert, a.triggered_at, 1800)}</td>
       <td class="mono">${fmtIntervalPctCell(a.price_after_1h, a.price_at_alert, a.triggered_at, 3600)}</td>

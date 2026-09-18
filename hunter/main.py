@@ -22,7 +22,9 @@ from core.db import (
     get_wallet_prior_trade_count, update_alert_peak_wallet_count,
     insert_alert_wallets, get_wallet_win_rates, get_wallet_buy_amounts_for_token,
     get_token_lifecycle, get_creator_track_record, get_early_buy_concentration,
+    update_alert_entry_decision,
 )
+from core.entry_filter import decide as decide_entry
 from core.eth_price import fetch_eth_usd, refresh_loop as eth_price_refresh_loop
 from core.notifier import send_telegram, format_stampede_alert
 from core.outcome_tracker import refresh_loop as outcome_tracker_loop
@@ -260,6 +262,26 @@ async def run_listener(listener, detector: StampedeDetector):
             # a ojo por ventana de tiempo como había que hacer antes.
             insert_alert_wallets(conn, alert_id, alert["wallets"])
         detector.set_alert_id(alert["token_address"], alert_id)
+
+        # Filtro de entrada aprendido de los datos propios (2026-09-18,
+        # ver core/entry_filter.py): la alerta SIEMPRE queda registrada,
+        # pero solo se notifica y se opera si el modelo la considera de
+        # las mejores ('pass') o entra por exploración ('explore', para
+        # poder medir el filtro en vivo). Ante cualquier fallo, se opera
+        # como antes ('nofilter').
+        with get_conn() as conn:
+            alert_row = conn.execute("SELECT * FROM stampede_alerts WHERE id = ?", (alert_id,)).fetchone()
+            entry_score, entry_decision = decide_entry(conn, alert_row)
+            update_alert_entry_decision(conn, alert_id, entry_score, entry_decision)
+        if entry_decision == "skip":
+            logger.info(
+                f"Filtro de entrada: alerta #{alert_id} DESCARTADA (score {entry_score:.3f}) -- "
+                f"registrada pero sin notificar ni operar."
+            )
+            continue
+        if entry_score is not None:
+            logger.info(f"Filtro de entrada: alerta #{alert_id} {entry_decision.upper()} (score {entry_score:.3f})")
+
         await send_telegram(format_stampede_alert(alert))
         # Auto-trader: abre una posición de PAPER TRADING (simulada,
         # nunca plata real) apenas se detecta la alerta, para no
