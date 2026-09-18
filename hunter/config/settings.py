@@ -65,3 +65,13 @@ DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "changeme-set-DASHBOAR
 # pública del servidor -- solo poné esto si YA tenés el usuario/clave
 # de arriba activos, si no cualquiera puede tocar los botones.
 DASHBOARD_HOST = "0.0.0.0"
+
+# --- Simulación "como si fuera real" (paper trading, 2026-09-18) ---
+# Todo sigue siendo 100% simulado (MODE = "alert_only", nunca se firma
+# nada), pero ahora se comporta como una cuenta real: capital limitado,
+# tamaño de posición realista, slippage medido de la curva (ver
+# core/slippage.py), comisiones de la cadena y latencia de ejecución.
+SIM_BANKROLL_USD = 2000.0       # capital simulado total
+SIM_POSITION_USD = 50.0         # tamaño por posición (2.5% del capital)
+SIM_ENTRY_LATENCY_S = 2.0       # segundos entre la alerta y el llenado de la compra
+SIM_EXIT_LATENCY_S = 1.5        # segundos entre la decisión de vender y el llenado

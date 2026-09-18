@@ -57,6 +57,25 @@ ACTIVE_LISTENERS = [
 ]
 
 
+_bg_tasks: set = set()
+
+
+def spawn(coro):
+    """Lanza una corrutina en segundo plano guardando la referencia (si
+    no, asyncio puede recolectarla a mitad de camino) y logueando
+    cualquier error en vez de perderlo en silencio."""
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+
+    def _done(t):
+        _bg_tasks.discard(t)
+        if not t.cancelled() and t.exception() is not None:
+            logger.error("Tarea en segundo plano falló", exc_info=t.exception())
+
+    task.add_done_callback(_done)
+    return task
+
+
 async def supervise(name: str, coro_factory, restart_delay: int = 10):
     """
     CONFIRMADO EN PRODUCCIÓN (2026-09-16): con asyncio.gather() plano, un
@@ -286,7 +305,10 @@ async def run_listener(listener, detector: StampedeDetector):
         # Auto-trader: abre una posición de PAPER TRADING (simulada,
         # nunca plata real) apenas se detecta la alerta, para no
         # perder el timing si no hay nadie mirando el dashboard.
-        await auto_open_on_alert(alert["chain"], alert["token_address"], alert_id=alert_id)
+        # En una tarea aparte: abrir la posición espera la latencia de
+        # ejecución simulada (SIM_ENTRY_LATENCY_S) y no debe frenar a
+        # este listener mientras tanto.
+        spawn(auto_open_on_alert(alert["chain"], alert["token_address"], alert_id=alert_id))
 
 
 async def main():

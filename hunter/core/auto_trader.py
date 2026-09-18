@@ -116,7 +116,9 @@ async def auto_open_on_alert(chain: str, token_address: str, alert_id: int | Non
             )
             return
 
-    result = await open_position(chain, token_address, DEFAULT_POSITION_USD, alert_id=alert_id)
+    result = await open_position(chain, token_address, DEFAULT_POSITION_USD, alert_id=alert_id, latency=True)
+    if result is not None and result.get("skipped"):
+        return  # sin capital libre: ya se logueó en open_position
     if result is None:
         logger.warning(
             f"Auto-trader: no se pudo abrir posición automática para "
@@ -154,7 +156,7 @@ async def _manage_open_position(position) -> None:
     if STOP_LOSS_REASON not in already_triggered:
         drawdown_from_entry = 1 - multiplier
         if drawdown_from_entry >= STOP_LOSS_PCT:
-            result = await sell_partial(position["id"], current["remaining_fraction"], STOP_LOSS_REASON, exit_price=current_price)
+            result = await sell_partial(position["id"], current["remaining_fraction"], STOP_LOSS_REASON, exit_price=current_price, latency=True)
             if result:
                 logger.info(
                     f"Auto-trader: STOP-LOSS en posición #{position['id']} -- "
@@ -177,7 +179,7 @@ async def _manage_open_position(position) -> None:
             if fresh is None or fresh["status"] != "open":
                 return
             fraction_of_original = fraction_of_remaining * fresh["remaining_fraction"]
-            result = await sell_partial(position["id"], fraction_of_original, reason, exit_price=current_price)
+            result = await sell_partial(position["id"], fraction_of_original, reason, exit_price=current_price, latency=True)
             if result:
                 logger.info(
                     f"Auto-trader: TOMA DE GANANCIA ({reason}) en posición #{position['id']} "
@@ -194,7 +196,7 @@ async def _manage_open_position(position) -> None:
         drawdown_from_peak = (peak - current_price) / peak if peak else 0
         if drawdown_from_peak >= TRAILING_STOP_PCT:
             result = await sell_partial(
-                position["id"], current["remaining_fraction"], TRAILING_STOP_REASON, exit_price=current_price
+                position["id"], current["remaining_fraction"], TRAILING_STOP_REASON, exit_price=current_price, latency=True
             )
             if result:
                 logger.info(
@@ -213,7 +215,7 @@ async def _close_stale_position(position) -> None:
     # parecer que hubo cientos de cierres manuales cuando en
     # realidad eran casi todos la red de seguridad de la hora
     # (encontrado analizando los datos el 2026-09-16).
-    result = await close_position(position["id"], reason="time_exit")
+    result = await close_position(position["id"], reason="time_exit", latency=True)
     if result is None:
         logger.warning(
             f"Auto-trader: posición #{position['id']} venció (>{HOLD_SECONDS}s) "

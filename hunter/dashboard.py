@@ -30,7 +30,8 @@ from core.db import (
     get_conn, get_paper_positions, get_last_transaction, get_setting, set_setting, now_iso,
 )
 from core.ev_calculator import FeeStructure, net_result_of_position
-from core.paper_trading import open_position, close_position, DEFAULT_POSITION_USD
+from core.paper_trading import open_position, close_position, DEFAULT_POSITION_USD, fees_for, free_cash_usd
+from config.settings import SIM_BANKROLL_USD
 from core.sol_price import get_cached_sol_usd
 
 _FEES = FeeStructure()
@@ -654,7 +655,7 @@ async function refresh() {
   const pnlEl = document.getElementById("closed-pnl");
   const wr = st.win_rate !== null ? ` · win-rate ${(st.win_rate * 100).toFixed(1)}%` : "";
   pnlEl.textContent = (totalPnl >= 0 ? "+$" : "-$") + Math.abs(totalPnl).toFixed(2);
-  pnlEl.title = `${st.closed_count} cerradas${wr} · ${st.anomalies_excluded} excluidas por anomalía de precio`;
+  pnlEl.title = `${st.closed_count} cerradas${wr} · ${st.anomalies_excluded} excluidas por anomalía de precio · capital libre $${st.cash_free_usd.toFixed(0)} de $${st.bankroll_usd.toFixed(0)}`;
   pnlEl.className = "value " + (totalPnl >= 0 ? "pnl-pos" : "pnl-neg");
 
   renderAlerts();
@@ -718,7 +719,7 @@ def _with_unrealized_pnl(conn, position: dict) -> dict:
 
     multiplier = last_tx["price"] / position["entry_price"]
     remaining_usd = position["amount_usd"] * remaining_fraction
-    unrealized = net_result_of_position(remaining_usd, multiplier, _FEES)
+    unrealized = net_result_of_position(remaining_usd, multiplier, fees_for(position["chain"]))
     position["current_price"] = last_tx["price"]
     position["has_fresh_price"] = True
     position["unrealized_pnl_usd"] = unrealized
@@ -825,6 +826,7 @@ def _build_api_data() -> dict:
             "alert_total": alert_total, "pnl_total": pnl_total,
             "closed_count": closed_n, "win_rate": (wins / closed_n) if closed_n else None,
             "open_count": open_n, "anomalies_excluded": len(anomaly_ids),
+            "bankroll_usd": SIM_BANKROLL_USD, "cash_free_usd": free_cash_usd(conn),
         }
 
     return {
