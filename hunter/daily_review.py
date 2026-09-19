@@ -37,7 +37,7 @@ last_tx = conn.execute("SELECT MAX(detected_at) FROM transactions WHERE chain='r
 last_al = conn.execute("SELECT MAX(triggered_at) FROM stampede_alerts").fetchone()[0]
 print(f"última tx robinhood: {last_tx}\núltima alerta:       {last_al}\nahora (UTC):         {datetime.utcnow().isoformat()}")
 rows = conn.execute("""SELECT substr(triggered_at,1,13) h, COUNT(*) n,
-    SUM(entry_decision='pass') p, SUM(entry_decision='explore') e, SUM(entry_decision='skip') s
+    SUM(entry_decision IN ('pass','shadow_pass')) p, SUM(entry_decision='explore') e, SUM(entry_decision IN ('skip','shadow_skip')) s
     FROM stampede_alerts WHERE triggered_at > ? GROUP BY h ORDER BY h DESC LIMIT 8""", (since,)).fetchall()
 print("alertas por hora (pass/explore/skip):")
 for r in rows:
@@ -70,7 +70,7 @@ for d in sorted(byday):
     print(f"  {d}: {len(v):4d} trades  win {sum(1 for x in v if x>0)/len(v):5.1%}  PnL ${sum(v):+8.2f}  prom ${sum(v)/len(v):+.2f}")
 
 print("\npor decisión del filtro:")
-for dec in ("pass", "explore", "nofilter", None):
+for dec in ("shadow_pass", "shadow_skip", "pass", "explore", "nofilter", None):
     g = [p for p in pos if p["entry_decision"] == dec]
     if not g:
         continue
@@ -88,7 +88,7 @@ for r in conn.execute(f"""SELECT reason, COUNT(*) n, SUM(pnl_usd) s, AVG(pnl_usd
 # ------------------------------------- 3) filtro en vivo: pass vs skip por resultado del precio
 print("\n", "=" * 72, "\n3) FILTRO EN VIVO -- ¿lo descartado era peor? (mismo criterio para todas las alertas)\n", "=" * 72, sep="")
 print("criterio: precio a 30 min vs precio de la alerta (independiente de nuestras salidas)")
-for dec in ("pass", "explore", "skip"):
+for dec in ("shadow_pass", "shadow_skip", "pass", "explore", "skip"):
     al = conn.execute("""SELECT price_at_alert p0, price_after_30m p30, price_after_1h p60 FROM stampede_alerts
         WHERE triggered_at > ? AND entry_decision = ? AND price_at_alert > 0 AND price_after_30m IS NOT NULL""", (since, dec)).fetchall()
     if len(al) < 20:
