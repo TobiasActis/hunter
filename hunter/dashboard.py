@@ -520,8 +520,8 @@ function renderAlerts() {
     // Filtro de entrada aprendido (core/entry_filter.py, 2026-09-18):
     // pass = operada, explore = descartada pero operada igual para
     // medir el filtro, skip = registrada sin operar.
-    const decLabels = {pass: "operada", explore: "explora", skip: "descartada", nofilter: "sin filtro"};
-    const decColor = {pass: "#2ecc71", explore: "#f1c40f", skip: "#e05252"};
+    const decLabels = {pass: "operada", explore: "explora", skip: "descartada", nofilter: "sin filtro", shadow_pass: "score alto", shadow_skip: "score bajo"};
+    const decColor = {pass: "#2ecc71", explore: "#f1c40f", skip: "#e05252", shadow_pass: "#8b949e", shadow_skip: "#8b949e"};
     const filterText = (!a.entry_decision || a.entry_decision === "nofilter")
       ? '<span class="mono">--</span>'
       : `<span class="mono" style="color:${decColor[a.entry_decision] || "inherit"}">${decLabels[a.entry_decision] || a.entry_decision}${(a.entry_score !== null && a.entry_score !== undefined) ? " " + a.entry_score.toFixed(2) : ""}</span>`;

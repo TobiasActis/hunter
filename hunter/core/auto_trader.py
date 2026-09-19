@@ -79,7 +79,7 @@ from core.token_price import fetch_current_price
 logger = logging.getLogger("hunter.auto_trader")
 
 HOLD_SECONDS = 60 * 60  # 1 hora -- red de seguridad final, mismo criterio que brain.py
-CHECK_INTERVAL_SECONDS = 60
+CHECK_INTERVAL_SECONDS = 5  # antes 60: con 60s los stop-loss salían a 0.59x en vez de ~0.77x
 
 # Corta TODO lo que quede si el precio cae esto desde la ENTRADA (no
 # desde el pico -- eso es TRAILING_STOP_PCT, un concepto distinto).
@@ -106,6 +106,9 @@ TRAILING_STOP_PCT = 0.30  # vender el resto si cae 30% desde el máximo alcanzad
 TRAILING_STOP_REASON = "trailing_stop"
 
 
+_in_flight: set = set()
+
+
 async def auto_open_on_alert(chain: str, token_address: str, alert_id: int | None = None):
     with get_conn() as conn:
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=HOLD_SECONDS)).isoformat()
@@ -116,7 +119,15 @@ async def auto_open_on_alert(chain: str, token_address: str, alert_id: int | Non
             )
             return
 
-    result = await open_position(chain, token_address, DEFAULT_POSITION_USD, alert_id=alert_id, latency=True)
+    alert_price = None
+    if alert_id is not None:
+        with get_conn() as conn:
+            row = conn.execute("SELECT price_at_alert FROM stampede_alerts WHERE id = ?", (alert_id,)).fetchone()
+            alert_price = row["price_at_alert"] if row else None
+
+    result = await open_position(
+        chain, token_address, DEFAULT_POSITION_USD, alert_id=alert_id, latency=True, alert_price=alert_price,
+    )
     if result is not None and result.get("skipped"):
         return  # sin capital libre: ya se logueó en open_position
     if result is None:
@@ -138,6 +149,20 @@ async def _manage_open_position(position) -> None:
     aparte, en _check_and_close_stale_positions."""
     current_price = await fetch_current_price(position["chain"], position["token_address"])
     if current_price is None or not position["entry_price"]:
+        return
+
+    # Camino rápido: revisando cada pocos segundos, la mayoría de las
+    # posiciones no tiene nada que hacer -- sin tocar la base salvo que el
+    # precio marque un nuevo máximo.
+    mult_now = current_price / position["entry_price"]
+    if current_price > (position["peak_price"] or 0):
+        with get_conn() as conn:
+            update_peak_price(conn, position["id"], current_price)
+    if (
+        (1 - mult_now) < STOP_LOSS_PCT
+        and mult_now < TAKE_PROFIT_LEVELS[0][0]
+        and position["remaining_fraction"] >= 0.999
+    ):
         return
 
     with get_conn() as conn:
@@ -230,6 +255,20 @@ async def _close_stale_position(position) -> None:
         )
 
 
+async def _guarded(position_id: int, coro) -> None:
+    """Una sola tarea a la vez por posición: con revisiones cada pocos
+    segundos y ventas que esperan la latencia simulada, sin esto la
+    siguiente revisión podía intentar vender lo mismo otra vez."""
+    if position_id in _in_flight:
+        coro.close()
+        return
+    _in_flight.add(position_id)
+    try:
+        await coro
+    finally:
+        _in_flight.discard(position_id)
+
+
 async def _check_and_close_stale_positions():
     now = datetime.now(timezone.utc)
 
@@ -248,9 +287,9 @@ async def _check_and_close_stale_positions():
         opened_at = datetime.fromisoformat(position["opened_at"])
         elapsed = (now - opened_at).total_seconds()
         if elapsed < HOLD_SECONDS:
-            tasks.append(_manage_open_position(position))
+            tasks.append(_guarded(position["id"], _manage_open_position(position)))
         else:
-            tasks.append(_close_stale_position(position))
+            tasks.append(_guarded(position["id"], _close_stale_position(position)))
 
     if tasks:
         results = await asyncio.gather(*tasks, return_exceptions=True)

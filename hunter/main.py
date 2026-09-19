@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from chains.robinhood import RobinhoodListener
 from chains.solana import SolanaListener
 from chains.solana_pumpportal import PumpPortalListener
-from config.settings import TRACKED_WALLETS, MODE, DASHBOARD_HOST
+from config.settings import TRACKED_WALLETS, MODE, DASHBOARD_HOST, ENTRY_FILTER_ENFORCE
 from core.auto_trader import auto_open_on_alert, refresh_loop as auto_trader_loop
 from core.brain import get_cached_model, predict_probability
 from core.db import (
@@ -291,6 +291,10 @@ async def run_listener(listener, detector: StampedeDetector):
         with get_conn() as conn:
             alert_row = conn.execute("SELECT * FROM stampede_alerts WHERE id = ?", (alert_id,)).fetchone()
             entry_score, entry_decision = decide_entry(conn, alert_row)
+            if not ENTRY_FILTER_ENFORCE and entry_decision in ("pass", "skip", "explore"):
+                # Modo sombra: el score se guarda y se sigue evaluando, pero
+                # NO decide -- en vivo no mostró ventaja (ver settings.py).
+                entry_decision = "shadow_pass" if entry_decision == "pass" else "shadow_skip"
             update_alert_entry_decision(conn, alert_id, entry_score, entry_decision)
         if entry_decision == "skip":
             logger.info(

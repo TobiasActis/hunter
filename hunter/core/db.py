@@ -233,6 +233,7 @@ def _migrate(conn):
         "ALTER TABLE stampede_alerts ADD COLUMN early_buy_concentration REAL",
         "ALTER TABLE stampede_alerts ADD COLUMN entry_score REAL",
         "ALTER TABLE stampede_alerts ADD COLUMN entry_decision TEXT",
+        "ALTER TABLE stampede_alerts ADD COLUMN chase_ratio REAL",
     ]
     for sql in migrations:
         try:
@@ -412,6 +413,13 @@ def update_alert_entry_decision(conn, alert_id: int, score, decision: str):
         "UPDATE stampede_alerts SET entry_score = ?, entry_decision = ? WHERE id = ?",
         (score, decision, alert_id),
     )
+
+
+def update_alert_chase_ratio(conn, alert_id: int, ratio: float):
+    """Precio de llenado / precio de la alerta: cuánto ya había subido el
+    precio cuando pudimos comprar. Se guarda también para las entradas que
+    se descartan por tardías, así se puede seguir evaluando el umbral."""
+    conn.execute("UPDATE stampede_alerts SET chase_ratio = ? WHERE id = ?", (ratio, alert_id))
 
 
 def update_alert_peak_wallet_count(conn, alert_id: int, peak_wallet_count: int):

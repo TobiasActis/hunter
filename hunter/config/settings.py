@@ -77,3 +77,14 @@ SIM_ENFORCE_CAPITAL = False     # False = margen infinito: se opera todo lo que 
 SIM_POSITION_USD = 50.0         # tamaño por posición (2.5% del capital)
 SIM_ENTRY_LATENCY_S = 2.0       # segundos entre la alerta y el llenado de la compra
 SIM_EXIT_LATENCY_S = 1.5        # segundos entre la decisión de vender y el llenado
+
+# --- Ajustes 2026-09-19, aprendidos de los resultados reales de la simulación ---
+# No entrar si el precio ya subió más de MAX_CHASE_RATIO entre el precio de la
+# alerta y el llenado (comprar después de que la manada empujó el precio): con
+# 629 posiciones reales, las entradas con llenado >1.15x el precio de la alerta
+# (219) perdieron ~$2,800 y las demás (410) solo ~$360, contra -$3,156 del total.
+MAX_CHASE_RATIO = 1.15
+# El filtro de ML (core/entry_filter.py) NO mostró ventaja en vivo (AUC 0.55 y
+# score alto = más desplomes): en modo sombra calcula y guarda el score de cada
+# alerta pero NO decide -- se opera todo, y se sigue midiendo por si mejora.
+ENTRY_FILTER_ENFORCE = False

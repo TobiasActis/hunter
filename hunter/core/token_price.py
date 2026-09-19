@@ -24,11 +24,19 @@ import logging
 
 import httpx
 
-from core.db import get_conn, get_last_transaction_price
+from datetime import datetime, timezone
+
+from core.db import get_conn, get_last_transaction, get_last_transaction_price
 
 logger = logging.getLogger("hunter.token_price")
 
 DEXSCREENER_URL = "https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+
+# Si el último precio on-chain propio de un token de Robinhood tiene menos de
+# esto, se usa directo sin llamar a DexScreener (2026-09-19): es el precio más
+# fresco que hay y evita una llamada de red por posición en cada revisión, lo
+# que permite revisar las posiciones cada pocos segundos en vez de cada minuto.
+FRESH_OWN_PRICE_SECONDS = 90
 
 MAX_PRICE_DEVIATION = 5.0  # DexScreener vs último precio on-chain propio, ver fetch_current_price
 
@@ -70,10 +78,19 @@ async def fetch_current_price(chain: str, token_address: str) -> float | None:
     último precio que el propio listener de esa cadena registró en
     `transactions`. None solo si ninguna de las dos fuentes tiene dato.
     """
-    price = await fetch_token_price_sol(token_address)
-
     with get_conn() as conn:
-        fallback = get_last_transaction_price(conn, chain, token_address)
+        last_tx = get_last_transaction(conn, chain, token_address)
+    fallback = last_tx["price"] if last_tx else None
+
+    if chain == "robinhood" and last_tx is not None and fallback:
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(last_tx["detected_at"])).total_seconds()
+        except (TypeError, ValueError):
+            age = None
+        if age is not None and age <= FRESH_OWN_PRICE_SECONDS:
+            return fallback
+
+    price = await fetch_token_price_sol(token_address)
 
     if price is not None:
         # BUG REAL (2026-09-18): DexScreener empezó a indexar tokens ya

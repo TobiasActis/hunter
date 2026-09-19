@@ -25,9 +25,11 @@ import logging
 
 from config.settings import (
     SIM_BANKROLL_USD, SIM_ENFORCE_CAPITAL, SIM_POSITION_USD, SIM_ENTRY_LATENCY_S, SIM_EXIT_LATENCY_S,
+    MAX_CHASE_RATIO,
 )
 from core.db import (
     get_conn, open_paper_position, get_paper_position, record_partial_exit, get_setting,
+    update_alert_chase_ratio,
 )
 from core.ev_calculator import FeeStructure, cost_of_trade, exit_cost
 from core.slippage import curve_depth_usd, price_factor
@@ -70,7 +72,8 @@ def free_cash_usd(conn) -> float:
 
 
 async def open_position(chain: str, token_address: str, amount_usd: float = DEFAULT_POSITION_USD,
-                         alert_id: int | None = None, latency: bool = False) -> dict | None:
+                         alert_id: int | None = None, latency: bool = False,
+                         alert_price: float | None = None) -> dict | None:
     """Abre una posición simulada como lo haría una cuenta real: espera
     la latencia de ejecución, llena al precio spot + impacto de la curva
     (core/slippage.py) y solo si hay capital libre (free_cash_usd).
@@ -96,6 +99,19 @@ async def open_position(chain: str, token_address: str, amount_usd: float = DEFA
             return {"skipped": "sin_capital"}
         depth = curve_depth_usd(conn, chain, token_address)
         entry_price = spot * price_factor(amount_usd, depth, "buy") if depth else spot
+        # No perseguir el precio: si para cuando podemos llenar ya subió más de
+        # MAX_CHASE_RATIO sobre el precio de la alerta, la manada ya lo empujó
+        # y comprar ahí perdió plata de forma consistente (ver settings.py).
+        if alert_price and alert_price > 0:
+            ratio = entry_price / alert_price
+            if alert_id is not None:
+                update_alert_chase_ratio(conn, alert_id, ratio)
+            if ratio > MAX_CHASE_RATIO:
+                logger.info(
+                    f"Entrada tardía descartada: {token_address} llenaría {ratio:.2f}x sobre el precio "
+                    f"de la alerta (tope {MAX_CHASE_RATIO:.2f}x)."
+                )
+                return {"skipped": "entrada_tardia"}
         effective_entry_usd = amount_usd - cost_of_trade(amount_usd, fees_for(chain))
         position_id = open_paper_position(
             conn, chain, token_address, amount_usd, entry_price, effective_entry_usd, alert_id=alert_id
