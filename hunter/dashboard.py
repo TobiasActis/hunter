@@ -167,6 +167,8 @@ HTML_PAGE = """<!DOCTYPE html>
     <div class="card"><div class="label">Alertas</div><div class="value" id="alert-count">--</div></div>
     <div class="card"><div class="label">Posiciones abiertas (paper)</div><div class="value" id="open-count">--</div></div>
     <div class="card"><div class="label">PnL realizado (paper)</div><div class="value" id="closed-pnl">--</div></div>
+    <div class="card"><div class="label">Win-rate (cerradas)</div><div class="value" id="win-rate">--</div><div class="mono" id="win-rate-detail" style="font-size:11px;margin-top:2px"></div></div>
+    <div class="card"><div class="label">PnL por trade</div><div class="value" id="pnl-per-trade">--</div><div class="mono" id="pnl-pct-detail" style="font-size:11px;margin-top:2px"></div></div>
   </div>
 
   <h2>Alertas de manada</h2>
@@ -658,6 +660,25 @@ async function refresh() {
   pnlEl.title = `${st.closed_count} cerradas${wr} · ${st.anomalies_excluded} excluidas por anomalía de precio · caja simulada $${st.cash_free_usd.toFixed(0)} (referencia $${st.bankroll_usd.toFixed(0)}, sin tope de capital)`;
   pnlEl.className = "value " + (totalPnl >= 0 ? "pnl-pos" : "pnl-neg");
 
+  // Win-rate y PnL por trade sobre las posiciones CERRADAS (las abiertas
+  // todavía no tienen resultado final).
+  const wrEl = document.getElementById("win-rate");
+  if (st.win_rate !== null && st.closed_count > 0) {
+    wrEl.textContent = (st.win_rate * 100).toFixed(1) + "%";
+    document.getElementById("win-rate-detail").textContent = `${st.wins} ganadoras de ${st.closed_count}`;
+    const perTrade = st.pnl_closed / st.closed_count;
+    const ptEl = document.getElementById("pnl-per-trade");
+    ptEl.textContent = (perTrade >= 0 ? "+$" : "-$") + Math.abs(perTrade).toFixed(2);
+    ptEl.className = "value " + (perTrade >= 0 ? "pnl-pos" : "pnl-neg");
+    const pct = st.invested_closed > 0 ? (st.pnl_closed / st.invested_closed) * 100 : 0;
+    document.getElementById("pnl-pct-detail").textContent = `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% de lo invertido`;
+  } else {
+    wrEl.textContent = "--";
+    document.getElementById("win-rate-detail").textContent = "";
+    document.getElementById("pnl-per-trade").textContent = "--";
+    document.getElementById("pnl-pct-detail").textContent = "";
+  }
+
   renderAlerts();
   renderPositions();
   renderTransactions();
@@ -812,8 +833,8 @@ def _build_api_data() -> dict:
         if cutoff:
             where_a, where_p, args = "WHERE triggered_at > ?", "WHERE opened_at > ?", (cutoff,)
         alert_total = conn.execute(f"SELECT COUNT(*) c FROM stampede_alerts {where_a}", args).fetchone()["c"]
-        pnl_total, closed_n, wins, open_n = 0.0, 0, 0, 0
-        for r in conn.execute(f"SELECT id, status, pnl_usd FROM paper_positions {where_p}", args):
+        pnl_total, closed_n, wins, open_n, invested_closed, pnl_closed = 0.0, 0, 0, 0, 0.0, 0.0
+        for r in conn.execute(f"SELECT id, status, pnl_usd, amount_usd FROM paper_positions {where_p}", args):
             if r["id"] in anomaly_ids:
                 continue
             pnl_total += r["pnl_usd"] or 0
@@ -821,10 +842,13 @@ def _build_api_data() -> dict:
                 open_n += 1
             else:
                 closed_n += 1
+                invested_closed += r["amount_usd"] or 0
+                pnl_closed += r["pnl_usd"] or 0
                 wins += 1 if (r["pnl_usd"] or 0) > 0 else 0
         stats = {
             "alert_total": alert_total, "pnl_total": pnl_total,
             "closed_count": closed_n, "win_rate": (wins / closed_n) if closed_n else None,
+            "wins": wins, "invested_closed": invested_closed, "pnl_closed": pnl_closed,
             "open_count": open_n, "anomalies_excluded": len(anomaly_ids),
             "bankroll_usd": SIM_BANKROLL_USD, "cash_free_usd": free_cash_usd(conn),
         }
