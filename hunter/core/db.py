@@ -193,8 +193,13 @@ def set_setting(conn, key: str, value: str):
 
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    # timeout=30: si otra conexión está escribiendo, esperar hasta 30s en vez
+    # de fallar a los 5s con "database is locked" (bug real, 2026-09-19: al
+    # revisar posiciones cada 5s + dashboard + listeners escribiendo, se
+    # perdían aperturas/eventos). synchronous=NORMAL es seguro con WAL.
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA synchronous=NORMAL")
     try:
         yield conn
         conn.commit()
@@ -204,6 +209,10 @@ def get_conn():
 
 def init_db():
     with get_conn() as conn:
+        # Modo WAL (persistente en el archivo): lectores y un escritor pueden
+        # trabajar a la vez sin bloquearse -- el modo por defecto bloquea a
+        # todos durante cada escritura.
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
         _migrate(conn)
 
