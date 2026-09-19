@@ -176,4 +176,51 @@ for lo, hi, lab in [(0, 0.90, "cayó >10%"), (0.90, 0.98, "cayó 2-10%"), (0.98,
     g = [f for f in feat if f["m60"] is not None and lo <= f["m60"] < hi]
     if len(g) >= 15:
         print(f"  {lab:14s} n={len(g):4d}  win {sum(1 for f in g if f['win'])/len(g):5.1%}  PnL prom ${np.mean([f['pnl'] for f in g]):+.2f}")
+
+# ------------------------------------- 5) captura: pico alcanzable vs lo que realmente cobramos
+# (idea tomada del "registro honesto" de FOMO Radar, que reporta el pico -- flattering -- y no
+# lo cobrable; acá medimos AMBOS para saber cuánto del movimiento dejamos en la mesa.)
+print("\n", "=" * 72, "\n5) CAPTURA: PICO ALCANZADO vs LO COBRADO\n", "=" * 72, sep="")
+cap = [(p["peak_price"] / p["entry_price"], 1 + (p["pnl_usd"] or 0) / p["amount_usd"], (p["pnl_usd"] or 0) > 0)
+       for p in pos if p["peak_price"] and p["entry_price"] and p["amount_usd"]]
+if len(cap) >= 15:
+    pk = np.array([c[0] for c in cap]); rl = np.array([c[1] for c in cap])
+    print(f"posiciones con pico registrado: {len(cap)}")
+    print(f"pico mediano {np.median(pk):.2f}x | cobrado mediano {np.median(rl):.2f}x")
+    for lo, hi, lab in [(1.0, 1.10, "pico <1.10x (nunca subió)"), (1.10, 1.60, "pico 1.10-1.60x (subió pero sin llegar al TP1)"),
+                        (1.60, 99, "pico >=1.60x (llegó al TP1)")]:
+        s = (pk >= lo) & (pk < hi)
+        if s.sum() >= 10:
+            print(f"  {lab:48s} n={s.sum():4d}  pico medio {pk[s].mean():.2f}x  cobrado medio {rl[s].mean():.2f}x  "
+                  f"win {(rl[s] > 1).mean():5.1%}")
+    s = pk >= 1.10
+    print(f"\nde las que llegaron a >=1.10x alguna vez ({s.sum()}), terminaron en pérdida: {(rl[s] <= 1).mean():.1%}")
+
+# ------------------------------------- 6) contrafactual: salida por presión de venta
+# Hallazgo del backtest histórico (2026-09-19, 937 posiciones): salir cuando k compradores
+# DISTINTOS ya vendieron tras nuestra entrada mejoró ~+$1.5/trade (IC95% [+0.1, +2.9], k=2-4,
+# ambas mitades del período). Control: vale igual con wallets ajenas a la alerta, o sea NO es
+# una señal de "wallets buenas". NO está en producción: acá se mide cada noche sobre posiciones
+# nuevas. Regla decidida de antemano: adoptar k=3 si con >=300 posiciones nuevas el IC95% del
+# cambio por trade excluye 0 y ambas mitades son positivas.
+print("\n", "=" * 72, "\n6) CONTRAFACTUAL: SALIR AL VENDER K COMPRADORES DISTINTOS (no operado)\n", "=" * 72, sep="")
+try:
+    from replay import load_positions, simulate, kth_distinct_seller_time
+    RP = load_positions(conn, since)
+    if len(RP) < 30:
+        print(f"Pocas posiciones para medir ({len(RP)}); se necesitan al menos 30.")
+    else:
+        base = np.array([simulate(P) for P in RP])
+        h = len(RP) // 2
+        print(f"posiciones: {len(RP)} | backtest con reglas actuales (nivel optimista, solo sirve para comparar): "
+              f"${base.sum():+.0f}")
+        rng = np.random.default_rng(1)
+        for k in (2, 3, 4):
+            d = np.array([simulate(P, force_t=kth_distinct_seller_time(P, k)) - b for P, b in zip(RP, base)])
+            fired = sum(1 for P in RP if kth_distinct_seller_time(P, k) is not None)
+            bs = [rng.choice(d, len(d)).mean() for _ in range(1000)]
+            print(f"  k={k}: dispara en {fired:4d} | cambio ${d.mean():+.2f}/trade  IC95% [{np.percentile(bs, 2.5):+.2f}, "
+                  f"{np.percentile(bs, 97.5):+.2f}] | 1ra mitad ${d[:h].mean():+.2f}  2da mitad ${d[h:].mean():+.2f}")
+except Exception as e:  # la revisión diaria nunca debe fallar por esta sección
+    print(f"(sección 6 no disponible: {e})")
 conn.close()
