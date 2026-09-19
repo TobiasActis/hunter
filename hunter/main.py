@@ -22,7 +22,7 @@ from core.db import (
     get_wallet_prior_trade_count, update_alert_peak_wallet_count,
     insert_alert_wallets, get_wallet_win_rates, get_wallet_buy_amounts_for_token,
     get_token_lifecycle, get_creator_track_record, get_early_buy_concentration,
-    update_alert_entry_decision,
+    update_alert_entry_decision, get_wallet_rep_score, update_alert_wallet_rep,
 )
 from core.entry_filter import decide as decide_entry
 from core.eth_price import fetch_eth_usd, refresh_loop as eth_price_refresh_loop
@@ -280,6 +280,13 @@ async def run_listener(listener, detector: StampedeDetector):
             # core/db.py::record_partial_exit), en vez de reconstruirlas
             # a ojo por ventana de tiempo como había que hacer antes.
             insert_alert_wallets(conn, alert_id, alert["wallets"])
+            # Solo métrica informativa (modo sombra); un fallo acá nunca debe
+            # frenar la alerta.
+            try:
+                update_alert_wallet_rep(conn, alert_id, get_wallet_rep_score(
+                    conn, alert["chain"], list(alert["wallets"]), alert_id))
+            except Exception as e:
+                logger.warning(f"wallet_rep_score falló para alerta #{alert_id}: {e}")
         detector.set_alert_id(alert["token_address"], alert_id)
 
         # Filtro de entrada aprendido de los datos propios (2026-09-18,

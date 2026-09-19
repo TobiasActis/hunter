@@ -243,6 +243,7 @@ def _migrate(conn):
         "ALTER TABLE stampede_alerts ADD COLUMN entry_score REAL",
         "ALTER TABLE stampede_alerts ADD COLUMN entry_decision TEXT",
         "ALTER TABLE stampede_alerts ADD COLUMN chase_ratio REAL",
+        "ALTER TABLE stampede_alerts ADD COLUMN wallet_rep_score REAL",
     ]
     for sql in migrations:
         try:
@@ -254,6 +255,8 @@ def _migrate(conn):
     # Recién ACÁ existe con certeza la columna `creator` (ya sea porque
     # la tabla se creó de cero arriba, o por el ALTER TABLE de arriba).
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tokens_creator ON tokens(chain, creator)")
+    # Para buscar el historial de una wallet en alertas pasadas (wallet_rep_score).
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_wallets_wallet ON alert_wallets(wallet)")
 
 
 def insert_transaction(conn, chain, wallet, token_address, side, amount_usd, price, tx_hash):
@@ -429,6 +432,48 @@ def update_alert_chase_ratio(conn, alert_id: int, ratio: float):
     precio cuando pudimos comprar. Se guarda también para las entradas que
     se descartan por tardías, así se puede seguir evaluando el umbral."""
     conn.execute("UPDATE stampede_alerts SET chase_ratio = ? WHERE id = ?", (ratio, alert_id))
+
+
+WALLET_REP_BASE_RATE = 0.094   # % de alertas que suben >=30% a los 30 min (medido 2026-09-19, n=7787)
+WALLET_REP_PRIOR_N = 4.0
+WALLET_REP_WIN_MULT = 1.3
+
+
+def get_wallet_rep_score(conn, chain: str, wallets: list[str], alert_id: int) -> float | None:
+    """Reputación propia de las wallets de una alerta (idea tomada de FOMO
+    Radar, que puntúa wallets por historial, pero calculada con NUESTRAS
+    alertas): para cada wallet, (ganadas + base*prior) / (alertas + prior),
+    donde "ganada" = el token subió >=30% a los 30 min de esa alerta. Se usan
+    solo alertas pasadas con resultado ya medido. Devuelve el promedio entre
+    las wallets de la alerta (wallet sin historial = tasa base).
+
+    Validado en walk-forward sobre 7787 alertas (2026-09-19): AUC 0.65 contra
+    0.59 del win-rate de wallets y 0.55 del filtro ML; con el score >=0.14 la
+    simulación realista dio PnL/trade $0.00 contra -$6.0 del resto (n=143),
+    o sea SIN ganancia demostrada. Por eso queda solo como métrica en modo
+    sombra (no filtra nada) hasta confirmar con datos v3. Solo Robinhood."""
+    if chain != "robinhood" or not wallets:
+        return None
+    placeholders = ",".join("?" * len(wallets))
+    rows = conn.execute(
+        f"""SELECT aw.wallet AS wallet, COUNT(*) AS n,
+                   SUM(CASE WHEN a.price_after_30m >= ? * a.price_at_alert THEN 1 ELSE 0 END) AS g
+            FROM alert_wallets aw JOIN stampede_alerts a ON a.id = aw.alert_id
+            WHERE aw.wallet IN ({placeholders}) AND a.chain = ? AND a.id <> ?
+              AND a.price_after_30m IS NOT NULL AND a.price_at_alert > 0
+            GROUP BY aw.wallet""",
+        (WALLET_REP_WIN_MULT, *wallets, chain, alert_id),
+    ).fetchall()
+    hist = {r["wallet"]: (r["n"], r["g"] or 0) for r in rows}
+    scores = []
+    for w in wallets:
+        n, g = hist.get(w, (0, 0))
+        scores.append((g + WALLET_REP_BASE_RATE * WALLET_REP_PRIOR_N) / (n + WALLET_REP_PRIOR_N))
+    return sum(scores) / len(scores)
+
+
+def update_alert_wallet_rep(conn, alert_id: int, score: float | None):
+    conn.execute("UPDATE stampede_alerts SET wallet_rep_score = ? WHERE id = ?", (score, alert_id))
 
 
 def update_alert_peak_wallet_count(conn, alert_id: int, peak_wallet_count: int):
