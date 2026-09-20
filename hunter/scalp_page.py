@@ -93,11 +93,14 @@ SCALP_PAGE = """<!DOCTYPE html>
     <h2>Momentum semanal entre monedas (papel)</h2>
     <details class="info"><summary>C&oacute;mo funciona y qu&eacute; esperar</summary>
       <p>Cada mi&eacute;rcoles 00:10 UTC toma las ~45 monedas m&aacute;s l&iacute;quidas de Binance, las ordena por cu&aacute;nto subieron en los &uacute;ltimos 28 d&iacute;as (medido al cierre del lunes) y <b>compra el 20% que m&aacute;s subi&oacute; y vende el 20% que m&aacute;s cay&oacute;</b>, con pesos iguales ($500 por pata). Mantiene 7 d&iacute;as; lo que se repite no paga costo. Todo en papel, con comisi&oacute;n de 0,07% por lado.</p>
+      <p><b>Control de riesgo:</b> cada posici&oacute;n tiene <b>stop-loss de 20% y take-profit de 40%</b> (se revisan cada 5 minutos con las velas reales), y el tama&ntilde;o de la cartera se ajusta solo seg&uacute;n la volatilidad de las &uacute;ltimas 8 semanas (empieza con la mitad hasta juntar 8). En el backtest esto baj&oacute; la ca&iacute;da m&aacute;xima de -72% a -43% a cambio de rendir menos (+38% anual contra +58%); el take-profit chico y el stop solo empeoraban el resultado. Ese paquete se eligi&oacute; entre varias combinaciones, as&iacute; que su mejora est&aacute; algo inflada.</p>
       <p><b>Qu&eacute; esperar:</b> es el &uacute;nico efecto con respaldo en estudios y en nuestro backtest 2019-2026 (+50% a +60% anual neto de costos, Sharpe 0,6 a 0,9), pero es <b>d&eacute;bil e inestable</b>: de 16 variantes 12 dieron positivo con resultados de +12% a +66%, las ca&iacute;das llegaron a -64% / -90%, y 2024-2026 fue m&aacute;s flojo. Ese backtest usa las monedas l&iacute;quidas de hoy (sobrevivientes) y no incluye el funding de los cortos, as&iacute; que en vivo se espera algo peor. Con menos de 12 semanas no se puede concluir nada: mirar la tendencia, no cada semana.</p>
     </details>
     <div class="stats" id="xs-cards"></div>
     <h2>Cartera actual</h2>
-    <table><thead><tr><th>Lado</th><th>Moneda</th><th>Momentum 28 d</th><th>Nocional</th><th>Entrada</th><th>Precio</th><th>PnL no realizado</th><th>Origen</th></tr></thead><tbody id="xs-open"></tbody></table>
+    <table><thead><tr><th>Lado</th><th>Moneda</th><th>Momentum 28 d</th><th>Nocional</th><th>Entrada</th><th>Precio</th><th>PnL no realizado</th><th>Stop-loss</th><th>Take-profit</th><th>Origen</th></tr></thead><tbody id="xs-open"></tbody></table>
+    <h2>Cierres por stop-loss y take-profit</h2>
+    <table><thead><tr><th>Cerrada</th><th>Moneda</th><th>Lado</th><th>Motivo</th><th>Entrada</th><th>Salida</th><th>PnL</th></tr></thead><tbody id="xs-exits"></tbody></table>
     <h2>Semanas cerradas</h2>
     <table><thead><tr><th>Semana</th><th>Resultado</th><th>% del capital</th></tr></thead><tbody id="xs-weeks"></tbody></table>
   </div>
@@ -409,12 +412,17 @@ async function loadXs() {
     card("Capital (papel)", "$" + x.equity.toFixed(2), `inicial $${x.config.bankroll.toFixed(0)} &middot; $${x.config.leg} por pata`, cls(total)) +
     card("PnL realizado", money(x.realized), "", cls(x.realized)) + card("No realizado", money(x.unrealized), "", cls(x.unrealized)) +
     card("Semanas cerradas", x.n_weeks, `${x.win_weeks} ganadoras`) +
+    card("Exposición", x.scale === null || x.scale === undefined ? "--" : (x.scale * 100).toFixed(0) + "%", `objetivo de volatilidad ${x.config.target_vol.toFixed(0)}% &middot; empieza en 50%`) +
+    card("Stops / take-profit", `${x.n_stop} / ${x.n_tp}`, `SL ${x.config.sl_pct.toFixed(0)}% &middot; TP ${x.config.tp_pct.toFixed(0)}%`) +
     card("Media semanal", x.avg_week_pct === null ? "--" : (x.avg_week_pct >= 0 ? "+" : "") + x.avg_week_pct.toFixed(2) + "%", "del capital", x.avg_week_pct === null ? "" : cls(x.avg_week_pct)) +
     card("Próximo reequilibrio", fmtTime(nextWednesdayUTC().toISOString()), "miércoles 00:10 UTC");
   const ob = document.getElementById("xs-open");
-  ob.innerHTML = x.open.length ? "" : '<tr><td colspan="8" class="empty">Todavía no hay cartera: se arma en el primer ciclo.</td></tr>';
+  ob.innerHTML = x.open.length ? "" : '<tr><td colspan="10" class="empty">Todavía no hay cartera: se arma en el primer ciclo.</td></tr>';
   for (const o of x.open) ob.insertAdjacentHTML("beforeend", `<tr><td class="${o.side}">${o.side === "long" ? "LARGO" : "CORTO"}</td><td>${o.symbol}</td><td class="${cls(o.mom)}">${o.mom === null || o.mom === undefined ? "--" : (o.mom * 100).toFixed(1) + "%"}</td>
-    <td>$${o.notional.toFixed(0)}</td><td>${px(o.entry)}</td><td>${px(o.mark)}</td><td class="${cls(o.unrealized_usd)}">${money(o.unrealized_usd)}</td><td class="mono">${o.carried ? "continúa de la semana anterior" : "nueva"} &middot; ${o.week_key}</td></tr>`);
+    <td>$${o.notional.toFixed(0)}</td><td>${px(o.entry)}</td><td>${px(o.mark)}</td><td class="${cls(o.unrealized_usd)}">${money(o.unrealized_usd)}</td><td class="mono">${px(o.sl)}</td><td class="mono">${px(o.tp)}</td><td class="mono">${o.carried ? "continúa de la semana anterior" : "nueva"} &middot; ${o.week_key}</td></tr>`);
+  const eb = document.getElementById("xs-exits");
+  eb.innerHTML = x.recent_exits.length ? "" : '<tr><td colspan="7" class="empty">Todavía ningún stop ni take-profit se activó.</td></tr>';
+  for (const e of x.recent_exits) eb.insertAdjacentHTML("beforeend", `<tr><td>${fmtTime(e.closed_at)}</td><td>${e.symbol}</td><td class="${e.side}">${e.side === "long" ? "LARGO" : "CORTO"}</td><td>${e.exit_reason === "stop" ? "stop-loss" : "take-profit"}</td><td>${px(e.entry)}</td><td>${px(e.exit_price)}</td><td class="${cls(e.pnl_usd)}">${money(e.pnl_usd)}</td></tr>`);
   const wb = document.getElementById("xs-weeks");
   wb.innerHTML = x.weeks.length ? "" : '<tr><td colspan="3" class="empty">La primera semana cierra en el próximo reequilibrio.</td></tr>';
   for (const w of x.weeks.slice().reverse()) wb.insertAdjacentHTML("beforeend", `<tr><td>${w.week}</td><td class="${cls(w.pnl)}">${money(w.pnl)}</td><td class="${cls(w.ret_pct)}">${w.ret_pct >= 0 ? "+" : ""}${w.ret_pct.toFixed(2)}%</td></tr>`);
