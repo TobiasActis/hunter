@@ -234,3 +234,11 @@ try:
     crypto_review.main()
 except Exception as e:                                # nunca romper el reporte de memecoins por esto
     print("(tablero cripto no disponible:", e, ")")
+
+
+# ------------------------------------- 8) lista de billeteras top por PnL (idea del articulo de copy-trading), medida hacia adelante en modo sombra
+try:
+    import watchlist_review
+    watchlist_review.main(conn)
+except Exception as e:                                # nunca romper el reporte por esto
+    print("(seccion de la lista de billeteras no disponible:", e, ")")
