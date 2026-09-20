@@ -33,6 +33,7 @@ from core.market_brain import run as market_brain_run
 from core.xs_momentum import run as xs_momentum_run
 from core.xs_funding import run as xs_funding_run
 from core.scalp_lab import run as scalp_lab_run
+from core.slowgrad import run as slowgrad_run
 from core.sol_price import fetch_sol_usd, refresh_loop as sol_price_refresh_loop
 from core.stampede import StampedeDetector
 from core.token_lifecycle_solana import run as token_lifecycle_solana_run
@@ -363,6 +364,7 @@ async def main():
         supervise("xs_momentum", xs_momentum_run),
         supervise("xs_funding", xs_funding_run),
         supervise("scalp_lab", scalp_lab_run),
+        supervise("slowgrad", slowgrad_run),
         supervise("token_lifecycle_solana", token_lifecycle_solana_run),
     ]
     tasks += [

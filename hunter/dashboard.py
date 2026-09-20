@@ -795,6 +795,23 @@ def api_lab():
     return Response(content=json.dumps(get_snapshot(), default=str).encode("utf-8"), media_type="application/json")
 
 
+@app.get("/api/sg")
+def api_sg():
+    # Graduaciones lentas de pump.fun en PAPEL (core/slowgrad.py).
+    from core.slowgrad import get_snapshot
+    return Response(content=json.dumps(get_snapshot(), default=str).encode("utf-8"), media_type="application/json")
+
+
+@app.post("/api/sg/manual")
+def api_sg_manual(body: dict):
+    # CAs de alertas reales del bot de Telegram pegados a mano: se simulan al precio actual.
+    from core.slowgrad import add_manual, extract_mints
+    mints = extract_mints(str(body.get("text", "")))
+    if not mints:
+        return JSONResponse({"error": "no se encontro ningun CA (direccion de token) en el texto"}, status_code=400)
+    return {"agregados": add_manual(mints), "encontrados": len(mints)}
+
+
 @app.get("/api/brain_trades")
 def api_brain_trades():
     # Posiciones de PAPEL abiertas por el cerebro con sus senales (core/market_brain.py).
