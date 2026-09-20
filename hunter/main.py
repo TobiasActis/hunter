@@ -28,6 +28,7 @@ from core.entry_filter import decide as decide_entry
 from core.eth_price import fetch_eth_usd, refresh_loop as eth_price_refresh_loop
 from core.notifier import send_telegram, format_stampede_alert
 from core.outcome_tracker import refresh_loop as outcome_tracker_loop
+from core.scalper import run as scalper_run
 from core.sol_price import fetch_sol_usd, refresh_loop as sol_price_refresh_loop
 from core.stampede import StampedeDetector
 from core.token_lifecycle_solana import run as token_lifecycle_solana_run
@@ -353,6 +354,7 @@ async def main():
         supervise("outcome_tracker", outcome_tracker_loop),
         supervise("auto_trader", auto_trader_loop),
         supervise("dashboard", lambda: run_dashboard(host=DASHBOARD_HOST)),
+        supervise("scalper", scalper_run),
         supervise("token_lifecycle_solana", token_lifecycle_solana_run),
     ]
     tasks += [

@@ -34,6 +34,7 @@ from core.paper_trading import open_position, close_position, DEFAULT_POSITION_U
 from config.settings import SIM_BANKROLL_USD
 from core.sol_price import get_cached_sol_usd
 from core.eth_price import get_cached_eth_usd
+from scalp_page import SCALP_PAGE
 
 _FEES = FeeStructure()
 
@@ -151,6 +152,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <body>
   <h1>HUNTER</h1>
   <div class="sub">Detector de manadas -- se refresca solo cada 5s -- horarios en Buenos Aires (UTC-3)</div>
+  <div class="sub"><a href="/scalping" style="color:#79c0ff">Scalping en papel de criptos establecidas (BTC, ETH, SOL) &rarr;</a></div>
   <div class="paper-banner">
     Paper trading: los botones "Comprar"/"Cerrar" simulan operaciones a precio
     de mercado real, SIN plata real. Nada acá firma una transacción de verdad.
@@ -765,6 +767,18 @@ setInterval(refresh, 5000);
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return HTML_PAGE
+
+
+@app.get("/scalping", response_class=HTMLResponse)
+async def scalping_page():
+    return SCALP_PAGE
+
+
+@app.get("/api/scalp")
+def api_scalp():
+    # Scalping en papel de criptos establecidas (core/scalper.py): lectura de data/scalp.db, en hilo aparte.
+    from core.scalper import get_snapshot
+    return Response(content=json.dumps(get_snapshot(), default=str).encode("utf-8"), media_type="application/json")
 
 
 def _with_pnl_pct(position: dict) -> dict:
