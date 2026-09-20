@@ -173,6 +173,14 @@ HTML_PAGE = """<!DOCTYPE html>
     <div class="card"><div class="label">PnL por trade</div><div class="value" id="pnl-per-trade">--</div><div class="mono" id="pnl-pct-detail" style="font-size:11px;margin-top:2px"></div></div>
   </div>
 
+  <h2>Resultados por versión (posiciones cerradas)</h2>
+  <div class="sub" style="margin-bottom:6px">Cada cambio de la simulación arranca una versión nueva; una posición cuenta en la versión vigente cuando se abrió.
+    Comparar versiones es orientativo: el mercado también cambia entre una y otra.</div>
+  <table id="versions-table">
+    <thead><tr><th>Versión</th><th>Desde (BA)</th><th>Cerradas</th><th>Win-rate</th><th>PnL total</th><th>PnL por trade</th><th>% de lo invertido</th><th>Salidas por presión de venta</th></tr></thead>
+    <tbody id="versions-body"></tbody>
+  </table>
+
   <h2>Alertas de manada</h2>
   <div class="toolbar">
     <label>Ordenar: <select id="alerts-sort" onchange="onAlertsSortChange()">
@@ -283,6 +291,31 @@ const EXIT_LABELS = {stop_loss: "stop-loss", take_profit_60: "TP1", take_profit_
 function fmtExits(list) {
   if (!list || list.length === 0) return "--";
   return list.map(r => EXIT_LABELS[r] || r.replace("_price_anomaly", " (anomalía)")).join(" → ");
+}
+function renderVersions(list) {
+  const body = document.getElementById("versions-body");
+  body.innerHTML = "";
+  if (!list || list.length === 0) {
+    body.innerHTML = '<tr><td colspan="8" class="empty">Sin marcadores de versión todavía.</td></tr>';
+    return;
+  }
+  for (const v of list) {
+    const perTrade = v.n ? v.pnl / v.n : null;
+    const pct = v.invested ? (v.pnl / v.invested) * 100 : null;
+    const cls = (x) => x === null ? "" : (x >= 0 ? "pnl-pos" : "pnl-neg");
+    const money = (x) => x === null ? "--" : (x >= 0 ? "+$" : "-$") + Math.abs(x).toFixed(2);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${v.label}</td>
+      <td class="mono">${fmtTime(v.since)}</td>
+      <td>${v.n}</td>
+      <td>${v.n ? (v.wins / v.n * 100).toFixed(1) + "%" : "--"}</td>
+      <td class="${cls(v.n ? v.pnl : null)}">${v.n ? money(v.pnl) : "--"}</td>
+      <td class="${cls(perTrade)}">${money(perTrade)}</td>
+      <td class="${cls(pct)}">${pct === null ? "--" : (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%"}</td>
+      <td class="mono">${v.sell_pressure_n || 0}</td>`;
+    body.appendChild(tr);
+  }
 }
 function fmtNum(x, digits) {
   if (x === null || x === undefined) return "--";
@@ -671,6 +704,7 @@ async function refresh() {
     `<span class="badge ${data.mode}">${data.mode}</span>`;
   document.getElementById("sol-price").textContent =
     data.sol_usd !== null ? "$" + data.sol_usd.toFixed(2) : "--";
+  renderVersions(data.versions);
   document.getElementById("eth-price").textContent =
     (data.eth_usd !== null && data.eth_usd !== undefined) ? "$" + data.eth_usd.toFixed(2) : "--";
   document.getElementById("alert-count").textContent = data.stats.alert_total;
@@ -893,6 +927,35 @@ def _build_api_data() -> dict:
                 invested_closed += r["amount_usd"] or 0
                 pnl_closed += r["pnl_usd"] or 0
                 wins += 1 if (r["pnl_usd"] or 0) > 0 else 0
+        # Resultados por VERSION de la simulacion (posiciones cerradas, sin anomalias, sobre TODA la base,
+        # sin el corte de vista): para ver el efecto de cada cambio en el PnL. Los marcadores
+        # sim_v*_since estan en dashboard_settings; una posicion pertenece a la version segun cuando se abrio.
+        VERSIONS = [
+            ("v2", "v2 - simulación realista (costos, slippage, latencia)", "sim_v2_since"),
+            ("v3", "v3 - sin perseguir precio + revisión cada 5 s", "sim_v3_since"),
+            ("v4", "v4 - + salida por presión de venta", "sim_v4_since"),
+        ]
+        marks = {r["key"]: r["value"] for r in conn.execute(
+            "SELECT key, value FROM dashboard_settings WHERE key IN ('sim_v2_since','sim_v3_since','sim_v4_since')")}
+        bounds = [(vid, label, marks.get(key)) for vid, label, key in VERSIONS if marks.get(key)]
+        versions = []
+        if bounds:
+            closed_rows = conn.execute(
+                "SELECT id, opened_at, pnl_usd, amount_usd FROM paper_positions "
+                "WHERE status = 'closed' AND opened_at >= ?", (bounds[0][2],)).fetchall()
+            sp_ids = {r["position_id"] for r in conn.execute(
+                "SELECT DISTINCT position_id FROM paper_position_exits WHERE reason = 'sell_pressure'")}
+            for k, (vid, label, since_) in enumerate(bounds):
+                until_ = bounds[k + 1][2] if k + 1 < len(bounds) else None
+                grp = [r for r in closed_rows if r["id"] not in anomaly_ids and r["opened_at"] >= since_
+                       and (until_ is None or r["opened_at"] < until_)]
+                inv = sum(r["amount_usd"] or 0 for r in grp)
+                pnl = sum(r["pnl_usd"] or 0 for r in grp)
+                versions.append({
+                    "id": vid, "label": label, "since": since_, "until": until_, "n": len(grp),
+                    "wins": sum(1 for r in grp if (r["pnl_usd"] or 0) > 0), "pnl": pnl, "invested": inv,
+                    "sell_pressure_n": sum(1 for r in grp if r["id"] in sp_ids),
+                })
         stats = {
             "alert_total": alert_total, "pnl_total": pnl_total,
             "closed_count": closed_n, "win_rate": (wins / closed_n) if closed_n else None,
@@ -908,6 +971,7 @@ def _build_api_data() -> dict:
         "eth_usd": get_cached_eth_usd(),
         "default_position_usd": DEFAULT_POSITION_USD,
         "view_cutoff_at": cutoff,
+        "versions": versions,
         "alerts": [dict(row) for row in alerts],
         "transactions": [dict(row) for row in txs],
         "positions": positions,
