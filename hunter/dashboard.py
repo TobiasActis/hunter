@@ -143,6 +143,7 @@ HTML_PAGE = """<!DOCTYPE html>
     background: #161b22; border: 1px solid #30363d; border-radius: 8px;
     padding: 8px 14px; font-size: 11px; color: #8b949e; margin-bottom: 16px;
   }
+  /*NAV_CSS*/
   .view-bar .link-btn {
     background: none; border: none; color: #79c0ff; text-decoration: underline;
     cursor: pointer; font-size: 11px; padding: 0; font-family: inherit;
@@ -150,9 +151,9 @@ HTML_PAGE = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-  <h1>HUNTER</h1>
-  <div class="sub">Detector de manadas -- se refresca solo cada 5s -- horarios en Buenos Aires (UTC-3)</div>
-  <div class="sub"><a href="/scalping" style="color:#79c0ff">Scalping en papel de criptos establecidas (BTC, ETH, SOL) &rarr;</a></div>
+  <!--NAV-->
+  <h1>Memes <span style="font-size:12px;color:#8b949e;font-weight:400">Robinhood Chain &middot; Solana</span></h1>
+  <div class="sub">Detector de manadas y graduaciones -- se refresca solo -- horarios en Buenos Aires (UTC-3)</div>
   <div class="paper-banner">
     Paper trading: los botones "Comprar"/"Cerrar" simulan operaciones a precio
     de mercado real, SIN plata real. Nada acá firma una transacción de verdad.
@@ -164,6 +165,15 @@ HTML_PAGE = """<!DOCTYPE html>
   </div>
   <div id="toast" class="toast"></div>
 
+  <div class="tabs">
+    <button class="tabbtn mtabbtn active" data-tab="resumen" onclick="showMTab('resumen')">Resumen y posiciones</button>
+    <button class="tabbtn mtabbtn" data-tab="alertas" onclick="showMTab('alertas')">Alertas de manada</button>
+    <button class="tabbtn mtabbtn" data-tab="tx" onclick="showMTab('tx')">Transacciones</button>
+    <button class="tabbtn mtabbtn" data-tab="sg" onclick="showMTab('sg')">Graduaciones lentas<span class="count" id="mcount-sg">-</span></button>
+    <button class="tabbtn mtabbtn" data-tab="bot" onclick="showMTab('bot')">Bot de Telegram<span class="count" id="mcount-bot">-</span></button>
+  </div>
+
+  <div class="mtab" id="mtab-resumen">
   <div class="stats">
     <div class="card"><div class="label">Modo</div><div class="value" id="mode">--</div></div>
     <div class="card"><div class="label">SOL/USD</div><div class="value" id="sol-price">--</div></div>
@@ -183,6 +193,32 @@ HTML_PAGE = """<!DOCTYPE html>
     <tbody id="versions-body"></tbody>
   </table>
 
+  <h2>Posiciones de paper trading</h2>
+  <div class="toolbar">
+    <label>Ordenar: <select id="positions-sort" onchange="onPositionsSortChange()">
+      <option value="time_desc">Más reciente</option>
+      <option value="best_pnl">Mayor ganancia</option>
+      <option value="worst_pnl">Mayor pérdida</option>
+    </select></label>
+    <div class="pager">
+      <button onclick="changePage('positions', -1)">&larr;</button>
+      <span id="positions-page-label">--</span>
+      <button onclick="changePage('positions', 1)">&rarr;</button>
+    </div>
+  </div>
+  <table id="positions-table">
+    <thead><tr>
+      <th>Abierta</th><th>Token</th><th>USD</th><th>Restante</th>
+      <th>MCap entrada &rarr; ahora/salida</th>
+      <th>Precio (%)</th><th>PnL total ($)</th><th>PnL total (%)</th>
+      <th>Salida</th><th>Estado</th><th></th>
+    </tr></thead>
+    <tbody id="positions-body"></tbody>
+  </table>
+
+  </div>
+
+  <div class="mtab" id="mtab-alertas" hidden>
   <h2>Alertas de manada</h2>
   <div class="toolbar">
     <label>Ordenar: <select id="alerts-sort" onchange="onAlertsSortChange()">
@@ -211,29 +247,9 @@ HTML_PAGE = """<!DOCTYPE html>
     <tbody id="alerts-body"></tbody>
   </table>
 
-  <h2>Posiciones de paper trading</h2>
-  <div class="toolbar">
-    <label>Ordenar: <select id="positions-sort" onchange="onPositionsSortChange()">
-      <option value="time_desc">Más reciente</option>
-      <option value="best_pnl">Mayor ganancia</option>
-      <option value="worst_pnl">Mayor pérdida</option>
-    </select></label>
-    <div class="pager">
-      <button onclick="changePage('positions', -1)">&larr;</button>
-      <span id="positions-page-label">--</span>
-      <button onclick="changePage('positions', 1)">&rarr;</button>
-    </div>
   </div>
-  <table id="positions-table">
-    <thead><tr>
-      <th>Abierta</th><th>Token</th><th>USD</th><th>Restante</th>
-      <th>MCap entrada &rarr; ahora/salida</th>
-      <th>Precio (%)</th><th>PnL total ($)</th><th>PnL total (%)</th>
-      <th>Salida</th><th>Estado</th><th></th>
-    </tr></thead>
-    <tbody id="positions-body"></tbody>
-  </table>
 
+  <div class="mtab" id="mtab-tx" hidden>
   <h2>Transacciones</h2>
   <div class="toolbar">
     <div class="pager">
@@ -248,6 +264,11 @@ HTML_PAGE = """<!DOCTYPE html>
     </tr></thead>
     <tbody id="tx-body"></tbody>
   </table>
+
+  </div>
+
+<!--SG_TAB-->
+<!--BOT_TAB-->
 
 <script>
 const PAGE_SIZE = 25;
@@ -758,10 +779,17 @@ async function refresh() {
 
 refresh();
 setInterval(refresh, 5000);
+//MEMES_JS
 </script>
 </body>
 </html>
 """
+
+from nav_common import NAV_CSS, nav_html
+from memes_tabs import MEMES_CSS, SG_TAB_HTML, BOT_TAB_HTML, MEMES_JS
+
+HTML_PAGE = (HTML_PAGE.replace("/*NAV_CSS*/", NAV_CSS + MEMES_CSS).replace("<!--NAV-->", nav_html("memes"))
+             .replace("<!--SG_TAB-->", SG_TAB_HTML).replace("<!--BOT_TAB-->", BOT_TAB_HTML).replace("//MEMES_JS", MEMES_JS))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -771,6 +799,11 @@ async def index():
 
 @app.get("/scalping", response_class=HTMLResponse)
 async def scalping_page():
+    return SCALP_PAGE
+
+
+@app.get("/criptos", response_class=HTMLResponse)
+async def criptos_page():
     return SCALP_PAGE
 
 

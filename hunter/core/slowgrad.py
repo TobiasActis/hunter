@@ -369,7 +369,7 @@ def get_snapshot() -> dict:
         variants.append({"variant": v, "name": name, "signals": len(vs), "entered": len(entered), "rejected": sum(1 for s in vs if s["status"] == "rejected"),
                          "no_price": sum(1 for s in vs if s["status"] == "no_price"), "pending": sum(1 for s in vs if s["status"] == "pending"),
                          "median_lag_s": (statistics.median(lags) if lags else None), "horizons": horizons})
-    for s in sigs[:60]:
+    for s in sigs[:200]:
         ms = marks.get(s["id"], {})
         last = None
         for h in sorted(ms):
@@ -382,4 +382,4 @@ def get_snapshot() -> dict:
             d["last_net"] = net_multiple(s["entry_price"], s["entry_quote_usd"], last[1]["price"], last[1]["quote_usd"])
         recent.append(d)
     return {"config": {"size_usd": SIZE_USD, "fee_side_pct": FEE_SIDE * 100, "tx_usd": TX_USD, "min_quote_sol": MIN_QUOTE_SOL, "slow_hours": SLOW_HOURS, "decision_horizon_s": DECISION_HORIZON_S},
-            "variants": variants, "recent": recent}
+            "variants": variants, "recent": recent, "bot_last_ms": max([s["signal_ms"] for s in sigs if s["variant"] == "BOT"], default=None)}

@@ -1,10 +1,10 @@
-"""Pagina /scalping del dashboard: scalping en PAPEL de criptos establecidas (metodo CRT). Ver core/scalper.py."""
+"""Vista "Criptos estables" (/criptos, tambien /scalping): estrategias en PAPEL sobre BTC, ETH y SOL (momentum, funding, cerebro, laboratorio de scalping, CRT, diario). Ver core/*."""
 
 SCALP_PAGE = """<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>HUNTER - Scalping (papel)</title>
+<title>HUNTER - Criptos estables</title>
 <style>
   :root { color-scheme: dark; }
   body { background:#0d1117; color:#c9d1d9; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; margin:0; padding:24px; }
@@ -42,18 +42,19 @@ SCALP_PAGE = """<!DOCTYPE html>
   td.what { white-space:normal; max-width:280px; line-height:1.35; }
   .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; background:#21262d; color:#c9d1d9; }
   .tag.paper { background:#1f6feb33; color:#79c0ff; }
+  /*NAV_CSS*/
 </style>
 </head>
 <body>
-  <h1>HUNTER &middot; Criptos establecidas <span class="tag paper">PAPEL &middot; nada se opera de verdad</span></h1>
-  <div class="sub"><a href="/">&larr; Memecoins</a> &middot; BTC, ETH y SOL &middot; se refresca solo &middot; horarios en Buenos Aires (UTC-3)</div>
+  <!--NAV-->
+  <h1>Criptos estables <span style="font-size:12px;color:#8b949e;font-weight:400">BTC &middot; ETH &middot; SOL</span></h1>
+  <div class="sub">Estrategias en papel con precios reales de Binance -- se refresca solo -- horarios en Buenos Aires (UTC-3)</div>
   <div class="tabs">
     <button class="tabbtn active" data-tab="resumen" onclick="showTab('resumen')">Resumen</button>
-    <button class="tabbtn" data-tab="cerebro" onclick="showTab('cerebro')">Cerebro (aprende solo)</button>
     <button class="tabbtn" data-tab="momentum" onclick="showTab('momentum')">Momentum semanal</button>
     <button class="tabbtn" data-tab="funding" onclick="showTab('funding')">Funding semanal</button>
+    <button class="tabbtn" data-tab="cerebro" onclick="showTab('cerebro')">Cerebro (aprende solo)</button>
     <button class="tabbtn" data-tab="lab" onclick="showTab('lab')">Laboratorio scalping</button>
-    <button class="tabbtn" data-tab="sg" onclick="showTab('sg')">Memes: graduaciones lentas</button>
     <button class="tabbtn" data-tab="motor" onclick="showTab('motor')">Motor CRT</button>
     <button class="tabbtn" data-tab="journal" onclick="showTab('journal')">Diario manual</button>
   </div>
@@ -136,23 +137,6 @@ SCALP_PAGE = """<!DOCTYPE html>
     <table><thead><tr><th>M&eacute;todo</th><th>Moneda</th><th>Lado</th><th>Estado</th><th>Entrada</th><th>Precio</th><th>PnL no realizado</th><th>Stop</th><th>Objetivo</th><th>Creada</th></tr></thead><tbody id="lab-live"></tbody></table>
     <h2>&Uacute;ltimas cerradas</h2>
     <table><thead><tr><th>Cerrada</th><th>M&eacute;todo</th><th>Moneda</th><th>Lado</th><th>Motivo</th><th>Entrada</th><th>Salida</th><th>R bruto</th><th>R neto</th><th>PnL</th></tr></thead><tbody id="lab-closed"></tbody></table>
-  </div>
-
-  <div class="tab" id="tab-sg" hidden>
-    <h2>Memes: graduaciones lentas de Solana (papel)</h2>
-    <details class="info"><summary>C&oacute;mo funciona y qu&eacute; esperar</summary>
-      <p>Prueba la se&ntilde;al del bot de Telegram <b>@kotte_memescan_bot</b> ("SLOW GRADUATION"): un token de pump.fun que tard&oacute; <b>horas</b> en llenar la curva (en vez de ~20 min) y reci&eacute;n ah&iacute; pasa a PumpSwap. El bot (c&oacute;digo abierto, qlo) dice que esos tokens duplican 1,5 veces m&aacute;s seguido y hacen 5x 2,4 veces m&aacute;s seguido; <b>eso es una probabilidad, no un retorno neto</b> de costos y de entrar tarde.</p>
-      <p>Sus alertas llegan por mensaje directo (el canal p&uacute;blico no las trae), as&iacute; que ac&aacute; se <b>detectan las mismas graduaciones</b> con nuestro rastreador y se miden con precios reales de DexScreener: compra simulada de $100 apenas aparece el pool (se mide el retraso), y el precio se registra a 1, 3, 5, 10, 15, 30 min y 1, 2, 4, 6, 12, 24 h. <b>Costos:</b> comisi&oacute;n de PumpSwap 0,30% por lado, deslizamiento seg&uacute;n la liquidez real del pool (los pools de graduados lentos suelen tener solo $3k a $15k) y $0,50 de transacci&oacute;n. Si el pool desaparece la medici&oacute;n queda <b>sin dato</b>, no en cero.</p>
-      <p><b>Filas:</b> <b>lenta</b> (&ge; 6 h, la se&ntilde;al del bot), <b>muy lenta</b> (no vimos su creaci&oacute;n: m&aacute;s vieja que nuestros datos), <b>control</b> (graduaci&oacute;n r&aacute;pida, 1 de cada 8) y <b>tus alertas</b>: peg&aacute; abajo el CA de una alerta real del bot apenas te llegue y se simula al precio de ese momento. Si corr&eacute;s el oyente <b>tg_alerts.py</b> (lee solo a ese bot en tu Telegram), las alertas reales entran solas como <b>alertas del bot</b>. Regla para creerle: 100 o m&aacute;s se&ntilde;ales con neto medio positivo (IC95% sin cruzar 0) y mejor que el control, mirando el horizonte de 1 hora fijado de antemano.</p>
-    </details>
-    <div class="stats" id="sg-cards"></div>
-    <h2>Pegar alerta del bot</h2>
-    <div class="jform"><textarea id="sg-text" rows="3" style="width:100%;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:8px" placeholder="Peg&aacute; el texto de la alerta (o solo el CA), uno o varios"></textarea>
-      <button class="tabbtn" style="border:1px solid #30363d;border-radius:6px;margin-top:6px" onclick="sgAdd()">Simular entrada ahora</button> <span class="mono" id="sg-msg" style="margin-left:10px"></span></div>
-    <h2>Resultados por horizonte (neto de costos)</h2>
-    <table><thead><tr><th>Grupo</th><th>Horizonte</th><th>Medidas</th><th>Sin dato</th><th>Mediana bruta</th><th>Neto medio (&plusmn;IC95)</th><th>% que gana neto</th><th>% &ge; 2x</th><th>% &ge; 5x</th></tr></thead><tbody id="sg-body"></tbody></table>
-    <h2>&Uacute;ltimas se&ntilde;ales</h2>
-    <table><thead><tr><th>Grupo</th><th>Token</th><th>Horas hasta graduar</th><th>Retraso de entrada</th><th>Reserva SOL</th><th>Estado</th><th>&Uacute;ltima medici&oacute;n</th></tr></thead><tbody id="sg-recent"></tbody></table>
   </div>
 
   <div class="tab" id="tab-motor" hidden>
@@ -429,6 +413,12 @@ async function loadSummary() {
       <td>${n ? (w / n * 100).toFixed(0) + "%" : "--"}</td><td class="${n ? cls(pnl) : ""}">${n ? money(pnl) : "--"}</td>
       <td class="${rn === null ? "" : cls(rn)}">${rn === null ? "--" : (rn >= 0 ? "+" : "") + rn.toFixed(2) + "R"}</td><td>${n < 30 ? `Muy pronto (${n} de 30)` : (rn < 0 ? "Pierde hasta ahora" : "Gana hasta ahora (falta confirmar)")}</td></tr>`);
   }
+  const ROW_ORDER = ["Momentum semanal", "Funding semanal", "Cerebro", "Laboratorio scalping", "Motor CRT", "Diario manual"];
+  const rKey = h => { const i = h.indexOf("<b>"), j = h.indexOf("</b>"); const k = i < 0 ? -1 : ROW_ORDER.indexOf(h.slice(i + 3, j)); return k < 0 ? 99 : k; };
+  rows.sort((a, b) => rKey(a) - rKey(b));
+  const CARD_ORDER = ["Momentum", "Funding", "Cerebro", "Laboratorio", "Motor CRT", "Diario", "Precios"];
+  const cKey = h => { const i = h.indexOf('class="label">'); if (i < 0) return 99; const t = h.slice(i + 14, i + 44); const k = CARD_ORDER.findIndex(p => t.startsWith(p)); return k < 0 ? 99 : k; };
+  cards.sort((a, b) => cKey(a) - cKey(b));
   document.getElementById("sum-cards").innerHTML = cards.join("");
   document.getElementById("sum-body").innerHTML = rows.join("") || '<tr><td colspan="8" class="empty">Cargando...</td></tr>';
   document.getElementById("sum-open").innerHTML = open.join("") || '<tr><td colspan="7" class="empty">Sin posiciones abiertas ahora.</td></tr>';
@@ -555,49 +545,11 @@ async function loadLab() {
 }
 loadLab(); setInterval(loadLab, 30000);
 
-// ---------- memes: graduaciones lentas de Solana
-function hlabel(s) { return s < 3600 ? (s / 60) + " min" : (s / 3600) + " h"; }
-async function sgAdd() {
-  const t = document.getElementById("sg-text").value, m = document.getElementById("sg-msg");
-  try {
-    const r = await fetch("/api/sg/manual", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: t})});
-    const j = await r.json();
-    m.textContent = r.ok ? `Agregados ${j.agregados} de ${j.encontrados} (los repetidos no se duplican)` : (j.error || "error");
-    if (r.ok) { document.getElementById("sg-text").value = ""; loadSg(); }
-  } catch (e) { m.textContent = "error de red"; }
-}
-async function loadSg() {
-  const s = await getJson("/api/sg");
-  if (!s) return;
-  const card = (label, val, sub, c) => `<div class="card"><div class="label">${label}</div><div class="value ${c || ""}">${val}</div><div class="mono" style="font-size:11px;margin-top:2px">${sub || ""}</div></div>`;
-  const v6 = s.variants.find(v => v.variant === "SG6"), ctl = s.variants.find(v => v.variant === "SGCTL");
-  const at = (v, h) => v.horizons.find(x => x.horizon_s === h);
-  const d6 = at(v6, s.config.decision_horizon_s), dc = at(ctl, s.config.decision_horizon_s);
-  const pc = x => x === undefined || x === null ? "--" : ((x - 1) * 100 >= 0 ? "+" : "") + ((x - 1) * 100).toFixed(1) + "%";
-  document.getElementById("sg-cards").innerHTML =
-    card("Señales lentas", v6.signals, `${v6.entered} con entrada &middot; ${v6.rejected} rechazadas por liquidez`) +
-    card("Control (rápidas)", ctl.signals, `${ctl.entered} con entrada`) +
-    card("Neto a 1 h (lentas)", d6.n ? pc(d6.mean_net) : "--", `${d6.n} medidas &middot; mediana bruta ${d6.n ? d6.median_gross.toFixed(2) + "x" : "--"}`, d6.n ? cls(d6.mean_net - 1) : "") +
-    card("Neto a 1 h (control)", dc.n ? pc(dc.mean_net) : "--", `${dc.n} medidas`, dc.n ? cls(dc.mean_net - 1) : "") +
-    card("Retraso de entrada", v6.median_lag_s === null ? "--" : v6.median_lag_s.toFixed(0) + " s", "mediana desde la graduación (el bot promete < 180 s)");
-  const body = document.getElementById("sg-body");
-  body.innerHTML = "";
-  for (const v of s.variants) for (const h of v.horizons) {
-    const dec = h.horizon_s === s.config.decision_horizon_s ? " <b>(decisión)</b>" : "";
-    body.insertAdjacentHTML("beforeend", `<tr><td>${v.name}</td><td>${hlabel(h.horizon_s)}${dec}</td><td>${h.n}</td><td>${h.missed}</td><td>${h.n ? h.median_gross.toFixed(2) + "x" : "--"}</td>
-      <td class="${h.n ? cls(h.mean_net - 1) : ""}">${h.n ? pc(h.mean_net) + (h.ci95 === null || h.ci95 === undefined ? "" : " &plusmn;" + (h.ci95 * 100).toFixed(0) + "%") : "--"}</td>
-      <td>${h.n ? (h.pct_net_pos * 100).toFixed(0) + "%" : "--"}</td><td>${h.n ? (h.pct_2x * 100).toFixed(0) + "%" : "--"}</td><td>${h.n ? (h.pct_5x * 100).toFixed(0) + "%" : "--"}</td></tr>`);
-  }
-  const rb = document.getElementById("sg-recent");
-  rb.innerHTML = s.recent.length ? "" : '<tr><td colspan="7" class="empty">Todavía no hay señales: se detectan apenas gradúa un token nuevo.</td></tr>';
-  const names = {SG6: "lenta", SGOLD: "muy lenta", SGCTL: "control", BOT: "alerta del bot", MANUAL: "tu alerta"};
-  const stn = {pending: "buscando precio", active: "midiendo", done: "completa", rejected: "rechazada (liquidez)", no_price: "sin precio"};
-  for (const r of s.recent) rb.insertAdjacentHTML("beforeend", `<tr><td>${names[r.variant]}</td><td class="mono">${r.symbol || "--"} ${r.mint.slice(0, 6)}…</td><td>${r.hours_to_grad === null || r.hours_to_grad === undefined ? "--" : r.hours_to_grad.toFixed(1)}</td>
-    <td>${r.entry_lag_s === null || r.entry_lag_s === undefined ? "--" : r.entry_lag_s.toFixed(0) + " s"}</td><td>${r.entry_quote_sol === null || r.entry_quote_sol === undefined ? "--" : r.entry_quote_sol.toFixed(1)}</td><td>${stn[r.status]}</td>
-    <td class="${r.last_net === undefined || r.last_net === null ? "" : cls(r.last_net - 1)}">${r.last_h === undefined ? "--" : hlabel(r.last_h) + ": " + r.last_gross.toFixed(2) + "x bruto / " + (r.last_net === null ? "--" : r.last_net.toFixed(2) + "x neto")}</td></tr>`);
-}
-loadSg(); setInterval(loadSg, 30000);
 </script>
 </body>
 </html>
 """
+
+from nav_common import NAV_CSS, nav_html
+
+SCALP_PAGE = SCALP_PAGE.replace("/*NAV_CSS*/", NAV_CSS).replace("<!--NAV-->", nav_html("criptos"))
