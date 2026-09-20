@@ -239,6 +239,6 @@ except Exception as e:                                # nunca romper el reporte 
 # ------------------------------------- 8) lista de billeteras top por PnL (idea del articulo de copy-trading), medida hacia adelante en modo sombra
 try:
     import watchlist_review
-    watchlist_review.main(conn)
+    watchlist_review.main(sqlite3.connect(f"file:{DB}?mode=ro", uri=True))          # conexion propia: la de arriba ya se cerro
 except Exception as e:                                # nunca romper el reporte por esto
     print("(seccion de la lista de billeteras no disponible:", e, ")")
