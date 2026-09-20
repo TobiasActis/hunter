@@ -10,6 +10,7 @@ Resultado con datos previos (fuera de muestra, posiciones realistas v2+, n=518):
 el win-rate mejora +1.8 pp fuera de muestra (+4.7 pp en muestra), IC cruza 0. No es ganancia demostrada.
 Criterio para adoptarlo (fijado de antemano): con >= 300 posiciones NUEVAS (posteriores a --since) el grupo LIMPIO promedia > 0 con IC95 que excluye 0 y la diferencia contra el resto es positiva en ambas mitades.
 
+SOLO CURVAS EN ETH (2026-09-20): desde que se descubrio que ~20% de los lanzamientos no cotizan en ETH, este estudio excluye esas curvas (usa tokens.quote_token); ver el resultado rehecho abajo.
 RESULTADO CON DATOS NUEVOS (2026-09-20, 975 posiciones posteriores a los umbrales, copia de la base del 20-sep 15:40 UTC): LIMPIO -3.21 USD (IC95 [-4.74,-1.64], n=432) contra -3.25 el resto
 (n=543); diferencia +0.05 (IC95 [-1.9,+2.1]); win-rate de las alertas 9.3% contra 9.4%. SIN EFECTO: el +8 USD de la muestra anterior fue casualidad del periodo (13-19 sep). DESCARTADO como filtro.
 Sirve de ejemplo de por que se fijan los umbrales antes y se prueba con datos posteriores.
@@ -32,13 +33,25 @@ def _ts(s):
     return pd.to_datetime(s, utc=True, format="ISO8601", errors="coerce").astype("int64") / 1e9
 
 
+ZERO = "0x" + "0" * 40
+
+
+def _non_eth_tokens(c) -> set:
+    """Tokens de curvas que NO cotizan en ETH (~20% de los lanzamientos; sus montos y precios estan mal medidos). Requiere tokens.quote_token (ver quote_token_tool.py)."""
+    if "quote_token" not in [r[1] for r in c.execute("PRAGMA table_info(tokens)")]:
+        return set()
+    return {r[0] for r in c.execute("SELECT token_address FROM tokens WHERE chain='robinhood' AND quote_token IS NOT NULL AND quote_token != ?", (ZERO,))}
+
+
 def compute_features(c) -> pd.DataFrame:
+    bad = _non_eth_tokens(c)
     al = pd.read_sql("SELECT id, token_address, triggered_at, price_at_alert, price_after_30m FROM stampede_alerts WHERE chain='robinhood' AND price_at_alert>0", c)
+    al = al[~al.token_address.isin(bad)]
     al["t"] = _ts(al["triggered_at"])
     al["y"] = al["price_after_30m"] / al["price_at_alert"]
     tx = pd.read_sql("SELECT wallet, token_address, side, amount_usd, detected_at FROM transactions WHERE chain='robinhood' AND amount_usd IS NOT NULL", c)
     tx["t"] = _ts(tx["detected_at"])
-    tx = tx.sort_values("t")
+    tx = tx[~tx.token_address.isin(bad)].sort_values("t")
     first_seen = tx.groupby("wallet")["t"].min().to_dict()
     by_tok = {k: g for k, g in tx.groupby("token_address")}
     aw = pd.read_sql("SELECT alert_id, wallet FROM alert_wallets", c)
