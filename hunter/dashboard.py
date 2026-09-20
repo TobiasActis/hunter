@@ -788,6 +788,13 @@ def api_fd():
     return Response(content=json.dumps(get_snapshot(), default=str).encode("utf-8"), media_type="application/json")
 
 
+@app.get("/api/lab")
+def api_lab():
+    # Laboratorio de scalping en PAPEL (core/scalp_lab.py).
+    from core.scalp_lab import get_snapshot
+    return Response(content=json.dumps(get_snapshot(), default=str).encode("utf-8"), media_type="application/json")
+
+
 @app.get("/api/brain_trades")
 def api_brain_trades():
     # Posiciones de PAPEL abiertas por el cerebro con sus senales (core/market_brain.py).

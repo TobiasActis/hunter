@@ -52,6 +52,7 @@ SCALP_PAGE = """<!DOCTYPE html>
     <button class="tabbtn" data-tab="cerebro" onclick="showTab('cerebro')">Cerebro (aprende solo)</button>
     <button class="tabbtn" data-tab="momentum" onclick="showTab('momentum')">Momentum semanal</button>
     <button class="tabbtn" data-tab="funding" onclick="showTab('funding')">Funding semanal</button>
+    <button class="tabbtn" data-tab="lab" onclick="showTab('lab')">Laboratorio scalping</button>
     <button class="tabbtn" data-tab="motor" onclick="showTab('motor')">Motor CRT</button>
     <button class="tabbtn" data-tab="journal" onclick="showTab('journal')">Diario manual</button>
   </div>
@@ -120,6 +121,20 @@ SCALP_PAGE = """<!DOCTYPE html>
     <table><thead><tr><th>Cerrada</th><th>Moneda</th><th>Lado</th><th>Entrada</th><th>Salida</th><th>PnL</th></tr></thead><tbody id="fd-exits"></tbody></table>
     <h2>Semanas cerradas</h2>
     <table><thead><tr><th>Semana</th><th>Resultado</th><th>% del capital</th></tr></thead><tbody id="fd-weeks"></tbody></table>
+  </div>
+
+  <div class="tab" id="tab-lab" hidden>
+    <h2>Laboratorio de scalping (papel)</h2>
+    <details class="info"><summary>C&oacute;mo funciona y qu&eacute; esperar</summary>
+      <p>Simula <b>en vivo, con precios reales de futuros de Binance</b>, un m&eacute;todo de scalping sobre BTC, ETH y SOL y lo compara contra un <b>control al azar</b>. Es el &uacute;nico patr&oacute;n que mostr&oacute; algo en los backtests: el <b>Order Block</b> (zona de la &uacute;ltima vela contraria antes de un quiebre de estructura en 1 hora) tocado en velas de 15 minutos. Se&ntilde;al: la vela toca la zona sin cerrar del otro lado. Stop en el borde de la zona, objetivo a 2 veces el riesgo, salida a las 24 h, riesgo fijo de $10 por operaci&oacute;n.</p>
+      <p><b>Cuatro filas:</b> <b>OB a mercado</b> (entra al tocar), <b>OB + RSI extremo</b> (solo si el RSI est&aacute; bajo 35 en largos / sobre 65 en cortos), <b>OB con orden l&iacute;mite</b> (orden maker puesta en el borde de la zona; se llena solo si el precio la cruza por 0,02%, para no ser optimistas) y el <b>control al azar</b> (entradas al azar con el mismo riesgo y objetivo). Costos: a mercado 0,07% por lado (comisi&oacute;n + deslizamiento); con orden l&iacute;mite 0,02% por lado y el stop sale a mercado.</p>
+      <p><b>Qu&eacute; esperar:</b> el backtest (2023-2026, n=3549) dio un rebote bruto de apenas +0,07R por operaci&oacute;n, y los costos a mercado cuestan ~0,28R, o sea neto -0,19R; con &oacute;rdenes l&iacute;mite quedaba en cero. <b>No se espera ganar</b>: esto mide con ejecuci&oacute;n realista si esa peque&ntilde;a ventaja sobrevive a los costos. Lo que importa son las columnas <b>R bruto</b> (la ventaja antes de costos) y <b>R neto</b> (lo que quedar&iacute;a). Con menos de 30 operaciones por fila no se puede concluir nada.</p>
+    </details>
+    <table><thead><tr><th>M&eacute;todo</th><th>Cerradas</th><th>Win-rate</th><th>R bruto medio</th><th>Costo medio</th><th>R neto medio (&plusmn;IC95)</th><th>PnL</th><th>Abiertas / pendientes</th><th>Lectura</th></tr></thead><tbody id="lab-body"></tbody></table>
+    <h2>Posiciones y &oacute;rdenes ahora</h2>
+    <table><thead><tr><th>M&eacute;todo</th><th>Moneda</th><th>Lado</th><th>Estado</th><th>Entrada</th><th>Precio</th><th>PnL no realizado</th><th>Stop</th><th>Objetivo</th><th>Creada</th></tr></thead><tbody id="lab-live"></tbody></table>
+    <h2>&Uacute;ltimas cerradas</h2>
+    <table><thead><tr><th>Cerrada</th><th>M&eacute;todo</th><th>Moneda</th><th>Lado</th><th>Motivo</th><th>Entrada</th><th>Salida</th><th>R bruto</th><th>R neto</th><th>PnL</th></tr></thead><tbody id="lab-closed"></tbody></table>
   </div>
 
   <div class="tab" id="tab-motor" hidden>
@@ -339,7 +354,7 @@ function reading(n, avg) {
 async function getJson(url) { try { return await (await fetch(url)).json(); } catch (e) { return null; } }
 function btKey(t) { return `${t.symbol} ${t.horizon}h`; }
 async function loadSummary() {
-  const [m, b, j, x, fdv] = await Promise.all([getJson("/api/scalp"), getJson("/api/brain_trades"), getJson("/api/journal"), getJson("/api/xs"), getJson("/api/fd")]);
+  const [m, b, j, x, fdv, lab] = await Promise.all([getJson("/api/scalp"), getJson("/api/brain_trades"), getJson("/api/journal"), getJson("/api/xs"), getJson("/api/fd"), getJson("/api/lab")]);
   const rows = [], cards = [], open = [], closed = [];
   const card = (label, val, sub, c) => `<div class="card"><div class="label">${label}</div><div class="value ${c || ""}">${val}</div><div class="mono" style="font-size:11px;margin-top:2px">${sub || ""}</div></div>`;
   if (b) {
@@ -386,6 +401,15 @@ async function loadSummary() {
     rows.push(`<tr><td><b>Funding semanal</b></td><td class="mono what">Compra las 5 monedas con funding más bajo y vende las 5 con funding más alto (28 monedas de futuros), reequilibra cada lunes</td><td>${fdv.n_weeks}</td><td>${fdv.open.length}</td>
       <td>${fdv.n_weeks ? (fdv.win_weeks / fdv.n_weeks * 100).toFixed(0) + "%" : "--"}</td><td class="${cls(total)}">${money(total)}</td>
       <td class="${fdv.avg_week_pct === null ? "" : cls(fdv.avg_week_pct)}">${fdv.avg_week_pct === null ? "--" : (fdv.avg_week_pct >= 0 ? "+" : "") + fdv.avg_week_pct.toFixed(2) + "% / semana"}</td><td>${rd}</td></tr>`);
+  }
+  if (lab) {
+    const real = lab.variants.filter(v => v.variant !== "CONTROL"), ctl = lab.variants.find(v => v.variant === "CONTROL");
+    const n = real.reduce((a, v) => a + v.n, 0), pnl = real.reduce((a, v) => a + v.pnl, 0), w = real.reduce((a, v) => a + v.wins, 0), op = real.reduce((a, v) => a + v.open + v.pending, 0);
+    const rn = n ? real.reduce((a, v) => a + (v.avg_r_net || 0) * v.n, 0) / n : null;
+    cards.push(card("Laboratorio scalping (papel)", n ? money(pnl) : "--", `${n} cerradas &middot; control ${ctl ? ctl.n : 0}`, n ? cls(pnl) : ""));
+    rows.push(`<tr><td><b>Laboratorio scalping</b></td><td class="mono what">Order Block de 1 h tocado en 15 m (BTC/ETH/SOL), 3 variantes contra un control al azar; detalle en la pestaña Laboratorio</td><td>${n}</td><td>${op}</td>
+      <td>${n ? (w / n * 100).toFixed(0) + "%" : "--"}</td><td class="${n ? cls(pnl) : ""}">${n ? money(pnl) : "--"}</td>
+      <td class="${rn === null ? "" : cls(rn)}">${rn === null ? "--" : (rn >= 0 ? "+" : "") + rn.toFixed(2) + "R"}</td><td>${n < 30 ? `Muy pronto (${n} de 30)` : (rn < 0 ? "Pierde hasta ahora" : "Gana hasta ahora (falta confirmar)")}</td></tr>`);
   }
   document.getElementById("sum-cards").innerHTML = cards.join("");
   document.getElementById("sum-body").innerHTML = rows.join("") || '<tr><td colspan="8" class="empty">Cargando...</td></tr>';
@@ -487,6 +511,31 @@ async function loadFd() {
   for (const w of f.weeks.slice().reverse()) wb.insertAdjacentHTML("beforeend", `<tr><td>${w.week}</td><td class="${cls(w.pnl)}">${money(w.pnl)}</td><td class="${cls(w.ret_pct)}">${w.ret_pct >= 0 ? "+" : ""}${w.ret_pct.toFixed(2)}%</td></tr>`);
 }
 loadFd(); setInterval(loadFd, 60000);
+
+// ---------- laboratorio de scalping
+async function loadLab() {
+  const l = await getJson("/api/lab");
+  if (!l) return;
+  const rf = v => v === null || v === undefined ? "--" : (v >= 0 ? "+" : "") + v.toFixed(2) + "R";
+  const body = document.getElementById("lab-body");
+  body.innerHTML = "";
+  for (const v of l.variants) {
+    const rd = v.n < 30 ? `Muy pronto (${v.n} de 30)` : (v.avg_r_net - v.ci95 > 0 ? "Gana (falta confirmar)" : (v.avg_r_net + v.ci95 < 0 ? "Pierde" : "Sin diferencia con cero"));
+    body.insertAdjacentHTML("beforeend", `<tr><td><b>${v.name}</b></td><td>${v.n}</td><td>${v.n ? (v.wins / v.n * 100).toFixed(0) + "%" : "--"}</td>
+      <td class="${cls(v.avg_r_gross)}">${rf(v.avg_r_gross)}</td><td class="mono">${v.cost_r === null ? "--" : "-" + v.cost_r.toFixed(2) + "R"}</td>
+      <td class="${cls(v.avg_r_net)}">${rf(v.avg_r_net)}${v.ci95 === null || v.ci95 === undefined ? "" : " &plusmn;" + v.ci95.toFixed(2)}</td><td class="${cls(v.n ? v.pnl : null)}">${v.n ? money(v.pnl) : "--"}</td>
+      <td>${v.open} / ${v.pending}</td><td>${rd}</td></tr>`);
+  }
+  const lb = document.getElementById("lab-live");
+  lb.innerHTML = l.live.length ? "" : '<tr><td colspan="10" class="empty">Sin posiciones ni órdenes: espera un toque de zona (los Order Blocks nacen cuando una vela de 1 h rompe la estructura).</td></tr>';
+  for (const o of l.live) lb.insertAdjacentHTML("beforeend", `<tr><td>${o.variant_name}</td><td>${o.symbol.replace("USDT", "")}</td><td class="${o.side}">${o.side === "long" ? "LARGO" : "CORTO"}</td><td>${o.status === "pending" ? "orden pendiente" : "abierta"}</td>
+    <td>${px(o.entry)}</td><td>${px(o.mark)}</td><td class="${cls(o.unrealized_usd)}">${o.unrealized_usd === undefined ? "--" : money(o.unrealized_usd)}</td><td class="mono">${px(o.stop)}</td><td class="mono">${px(o.target)}</td><td class="mono">${fmtTime(o.created_at)}</td></tr>`);
+  const cb = document.getElementById("lab-closed");
+  cb.innerHTML = l.closed.length ? "" : '<tr><td colspan="10" class="empty">Todavía no se cerró ninguna operación.</td></tr>';
+  for (const c of l.closed) cb.insertAdjacentHTML("beforeend", `<tr><td>${fmtTime(c.closed_at)}</td><td>${c.variant_name}</td><td>${c.symbol.replace("USDT", "")}</td><td class="${c.side}">${c.side === "long" ? "LARGO" : "CORTO"}</td><td>${c.exit_reason}</td>
+    <td>${px(c.entry)}</td><td>${px(c.exit_price)}</td><td class="${cls(c.r_gross)}">${rf(c.r_gross)}</td><td class="${cls(c.r_net)}">${rf(c.r_net)}</td><td class="${cls(c.pnl_usd)}">${money(c.pnl_usd)}</td></tr>`);
+}
+loadLab(); setInterval(loadLab, 30000);
 </script>
 </body>
 </html>
