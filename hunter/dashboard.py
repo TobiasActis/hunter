@@ -165,6 +165,7 @@ HTML_PAGE = """<!DOCTYPE html>
   <div class="stats">
     <div class="card"><div class="label">Modo</div><div class="value" id="mode">--</div></div>
     <div class="card"><div class="label">SOL/USD</div><div class="value" id="sol-price">--</div></div>
+    <div class="card"><div class="label">ETH/USD</div><div class="value" id="eth-price">--</div></div>
     <div class="card"><div class="label">Alertas</div><div class="value" id="alert-count">--</div></div>
     <div class="card"><div class="label">Posiciones abiertas (paper)</div><div class="value" id="open-count">--</div></div>
     <div class="card"><div class="label">PnL realizado (paper)</div><div class="value" id="closed-pnl">--</div></div>
@@ -190,6 +191,7 @@ HTML_PAGE = """<!DOCTYPE html>
       <th>Hora</th><th>Token</th><th>Edad del token</th><th>MCap alerta</th><th>Wallets</th>
       <th>brain.py</th>
       <th>win-rate wallets</th>
+      <th>rep. wallets</th>
       <th>compra ($)</th>
       <th>historial dev</th>
       <th>bundled</th>
@@ -217,7 +219,7 @@ HTML_PAGE = """<!DOCTYPE html>
       <th>Abierta</th><th>Token</th><th>USD</th><th>Restante</th>
       <th>MCap entrada &rarr; ahora/salida</th>
       <th>Precio (%)</th><th>PnL total ($)</th><th>PnL total (%)</th>
-      <th>Estado</th><th></th>
+      <th>Salida</th><th>Estado</th><th></th>
     </tr></thead>
     <tbody id="positions-body"></tbody>
   </table>
@@ -275,6 +277,12 @@ function fmtMcap(v) {
   if (v >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M";
   if (v >= 1e3) return "$" + (v / 1e3).toFixed(1) + "k";
   return "$" + v.toFixed(0);
+}
+const EXIT_LABELS = {stop_loss: "stop-loss", take_profit_60: "TP1", take_profit_120: "TP2", trailing_stop: "trailing",
+  time_exit: "1 h", sell_pressure: "presión de venta", manual_close: "manual"};
+function fmtExits(list) {
+  if (!list || list.length === 0) return "--";
+  return list.map(r => EXIT_LABELS[r] || r.replace("_price_anomaly", " (anomalía)")).join(" → ");
 }
 function fmtNum(x, digits) {
   if (x === null || x === undefined) return "--";
@@ -489,7 +497,7 @@ function renderAlerts() {
   const alertsBody = document.getElementById("alerts-body");
   alertsBody.innerHTML = "";
   if (slice.length === 0) {
-    alertsBody.innerHTML = '<tr><td colspan="16" class="empty">Todavía no se detectó ninguna manada.</td></tr>';
+    alertsBody.innerHTML = '<tr><td colspan="17" class="empty">Todavía no se detectó ninguna manada.</td></tr>';
   }
   for (const a of slice) {
     const existing = lastData.positions.filter(
@@ -543,6 +551,12 @@ function renderAlerts() {
     const filterText = (!a.entry_decision || a.entry_decision === "nofilter")
       ? '<span class="mono">--</span>'
       : `<span class="mono" style="color:${decColor[a.entry_decision] || "inherit"}">${decLabels[a.entry_decision] || a.entry_decision}${(a.entry_score !== null && a.entry_score !== undefined) ? " " + a.entry_score.toFixed(2) : ""}</span>`;
+    // Reputación propia de las wallets (core/db.py::get_wallet_rep_score, 2026-09-19): promedio de
+    // (alertas ganadoras + prior) / (alertas + prior) de cada wallet; base ~0.09. Solo informativo
+    // (modo sombra): en la simulación >=0.14 dio ~$0/trade contra -$6 del resto, sin ganancia demostrada.
+    const repText = (a.wallet_rep_score === null || a.wallet_rep_score === undefined)
+      ? '<span class="mono">--</span>'
+      : `<span class="mono"${a.wallet_rep_score >= 0.14 ? ' style="color:#2ecc71"' : ''}>${a.wallet_rep_score.toFixed(2)}</span>`;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${fmtTime(a.triggered_at)}</td>
@@ -552,6 +566,7 @@ function renderAlerts() {
       <td>${walletsText}</td>
       <td class="mono">${brainText}</td>
       <td class="mono">${winRateText}</td>
+      <td class="mono">${repText}</td>
       <td class="mono">${buyAmountText}</td>
       <td class="mono">${devText}</td>
       <td>${bundledText}</td>
@@ -576,7 +591,7 @@ function renderPositions() {
   const positionsBody = document.getElementById("positions-body");
   positionsBody.innerHTML = "";
   if (slice.length === 0) {
-    positionsBody.innerHTML = '<tr><td colspan="10" class="empty">Sin posiciones todavía -- usá "Comprar" en una alerta.</td></tr>';
+    positionsBody.innerHTML = '<tr><td colspan="11" class="empty">Sin posiciones todavía -- usá "Comprar" en una alerta.</td></tr>';
   }
   for (const p of slice) {
     const isOpen = p.status === "open";
@@ -614,6 +629,7 @@ function renderPositions() {
       <td class="${priceChangePct === null ? '' : (priceChangePct >= 0 ? 'pnl-pos' : 'pnl-neg')}">${priceChangePct === null ? '--' : fmtPct(priceChangePct)}</td>
       <td class="${pnlClass}">${pnlUsdText}</td>
       <td class="${pnlClass}">${pnlPctText}</td>
+      <td class="mono">${fmtExits(p.exit_reasons)}</td>
       <td>${statusLabel}</td>
       <td>${action}</td>
     `;
@@ -655,6 +671,8 @@ async function refresh() {
     `<span class="badge ${data.mode}">${data.mode}</span>`;
   document.getElementById("sol-price").textContent =
     data.sol_usd !== null ? "$" + data.sol_usd.toFixed(2) : "--";
+  document.getElementById("eth-price").textContent =
+    (data.eth_usd !== null && data.eth_usd !== undefined) ? "$" + data.eth_usd.toFixed(2) : "--";
   document.getElementById("alert-count").textContent = data.stats.alert_total;
 
   const viewStatus = document.getElementById("view-status");
@@ -831,9 +849,21 @@ def _build_api_data() -> dict:
                 "WHERE reason LIKE '%_price_anomaly'")
         }
 
+        # Razones de salida (stop_loss, take_profit_*, sell_pressure, ...) de las posiciones
+        # cargadas, en orden cronologico -- se muestran en la tabla para ver POR QUE se cerro.
+        exit_reasons: dict = {}
+        if position_rows:
+            ids_ = [r["id"] for r in position_rows]
+            ph_ = ",".join("?" * len(ids_))
+            for r in conn.execute(
+                f"SELECT position_id, reason FROM paper_position_exits WHERE position_id IN ({ph_}) ORDER BY id", ids_
+            ):
+                exit_reasons.setdefault(r["position_id"], []).append(r["reason"])
+
         positions = []
         for row in position_rows:
             p = dict(row)
+            p["exit_reasons"] = exit_reasons.get(p["id"], [])
             if p["status"] == "open":
                 p = _with_unrealized_pnl(conn, p)
             else:
