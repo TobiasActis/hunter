@@ -50,6 +50,7 @@ SCALP_PAGE = """<!DOCTYPE html>
   <div class="tabs">
     <button class="tabbtn active" data-tab="resumen" onclick="showTab('resumen')">Resumen</button>
     <button class="tabbtn" data-tab="cerebro" onclick="showTab('cerebro')">Cerebro (aprende solo)</button>
+    <button class="tabbtn" data-tab="momentum" onclick="showTab('momentum')">Momentum semanal</button>
     <button class="tabbtn" data-tab="motor" onclick="showTab('motor')">Motor CRT</button>
     <button class="tabbtn" data-tab="journal" onclick="showTab('journal')">Diario manual</button>
   </div>
@@ -86,6 +87,19 @@ SCALP_PAGE = """<!DOCTYPE html>
   <div class="sub" id="brain-meta">Cargando...</div>
   <table><thead><tr><th>Activo</th><th>Horizonte</th><th>P(sube) &uacute;ltima</th><th>Vela</th><th>Evaluadas</th><th>AUC en vivo</th><th>AUC investigaci&oacute;n</th><th>Acierta direcci&oacute;n</th><th>Se&ntilde;ales</th><th>Bruto (bps)</th><th>Neto taker (bps)</th><th>Neto maker (bps)</th></tr></thead><tbody id="brain-body"></tbody></table>
 
+  </div>
+
+  <div class="tab" id="tab-momentum" hidden>
+    <h2>Momentum semanal entre monedas (papel)</h2>
+    <details class="info"><summary>C&oacute;mo funciona y qu&eacute; esperar</summary>
+      <p>Cada mi&eacute;rcoles 00:10 UTC toma las ~45 monedas m&aacute;s l&iacute;quidas de Binance, las ordena por cu&aacute;nto subieron en los &uacute;ltimos 28 d&iacute;as (medido al cierre del lunes) y <b>compra el 20% que m&aacute;s subi&oacute; y vende el 20% que m&aacute;s cay&oacute;</b>, con pesos iguales ($500 por pata). Mantiene 7 d&iacute;as; lo que se repite no paga costo. Todo en papel, con comisi&oacute;n de 0,07% por lado.</p>
+      <p><b>Qu&eacute; esperar:</b> es el &uacute;nico efecto con respaldo en estudios y en nuestro backtest 2019-2026 (+50% a +60% anual neto de costos, Sharpe 0,6 a 0,9), pero es <b>d&eacute;bil e inestable</b>: de 16 variantes 12 dieron positivo con resultados de +12% a +66%, las ca&iacute;das llegaron a -64% / -90%, y 2024-2026 fue m&aacute;s flojo. Ese backtest usa las monedas l&iacute;quidas de hoy (sobrevivientes) y no incluye el funding de los cortos, as&iacute; que en vivo se espera algo peor. Con menos de 12 semanas no se puede concluir nada: mirar la tendencia, no cada semana.</p>
+    </details>
+    <div class="stats" id="xs-cards"></div>
+    <h2>Cartera actual</h2>
+    <table><thead><tr><th>Lado</th><th>Moneda</th><th>Momentum 28 d</th><th>Nocional</th><th>Entrada</th><th>Precio</th><th>PnL no realizado</th><th>Origen</th></tr></thead><tbody id="xs-open"></tbody></table>
+    <h2>Semanas cerradas</h2>
+    <table><thead><tr><th>Semana</th><th>Resultado</th><th>% del capital</th></tr></thead><tbody id="xs-weeks"></tbody></table>
   </div>
 
   <div class="tab" id="tab-motor" hidden>
@@ -305,7 +319,7 @@ function reading(n, avg) {
 async function getJson(url) { try { return await (await fetch(url)).json(); } catch (e) { return null; } }
 function btKey(t) { return `${t.symbol} ${t.horizon}h`; }
 async function loadSummary() {
-  const [m, b, j] = await Promise.all([getJson("/api/scalp"), getJson("/api/brain_trades"), getJson("/api/journal")]);
+  const [m, b, j, x] = await Promise.all([getJson("/api/scalp"), getJson("/api/brain_trades"), getJson("/api/journal"), getJson("/api/xs")]);
   const rows = [], cards = [], open = [], closed = [];
   const card = (label, val, sub, c) => `<div class="card"><div class="label">${label}</div><div class="value ${c || ""}">${val}</div><div class="mono" style="font-size:11px;margin-top:2px">${sub || ""}</div></div>`;
   if (b) {
@@ -336,6 +350,14 @@ async function loadSummary() {
     rows.push(`<tr><td><b>Diario manual</b></td><td class="mono what">Operaciones que anotás vos en demo (por ejemplo del canal), con comisiones</td><td>${s.n_closed}</td><td>${s.n_open}</td>
       <td>${s.n_closed ? pctf(s.wr) : "--"}</td><td class="${s.n_closed ? cls(s.total_r) : ""}">${s.n_closed ? rf(s.total_r) : "--"}</td>
       <td class="${s.n_closed ? cls(s.expectancy_r) : ""}">${s.n_closed ? rf(s.expectancy_r) : "--"}</td><td>${reading(s.n_closed, s.n_closed ? s.expectancy_r : 0)}</td></tr>`);
+  }
+  if (x) {
+    const total = x.realized + x.unrealized;
+    cards.push(card("Momentum semanal (papel)", "$" + x.equity.toFixed(2), `PnL ${money(total)} &middot; inicial $${x.config.bankroll.toFixed(0)}`, cls(total)));
+    const rd = x.n_weeks < 12 ? `Muy pronto (${x.n_weeks} de 12 semanas)` : (x.avg_week_pct < 0 ? "Pierde hasta ahora" : "Gana hasta ahora (falta confirmar)");
+    rows.push(`<tr><td><b>Momentum semanal</b></td><td class="mono what">Compra las monedas que más subieron en 28 días y vende las que más cayeron (45 líquidas), reequilibra cada miércoles</td><td>${x.n_weeks}</td><td>${x.open.length}</td>
+      <td>${x.n_weeks ? (x.win_weeks / x.n_weeks * 100).toFixed(0) + "%" : "--"}</td><td class="${cls(total)}">${money(total)}</td>
+      <td class="${x.avg_week_pct === null ? "" : cls(x.avg_week_pct)}">${x.avg_week_pct === null ? "--" : (x.avg_week_pct >= 0 ? "+" : "") + x.avg_week_pct.toFixed(2) + "% / semana"}</td><td>${rd}</td></tr>`);
   }
   document.getElementById("sum-cards").innerHTML = cards.join("");
   document.getElementById("sum-body").innerHTML = rows.join("") || '<tr><td colspan="8" class="empty">Cargando...</td></tr>';
@@ -369,6 +391,35 @@ if (location.hash && document.getElementById("tab-" + location.hash.slice(1))) i
 showTab(initial);
 loadSummary(); setInterval(loadSummary, 10000);
 loadBrainTrades(); setInterval(loadBrainTrades, 10000);
+
+// ---------- momentum semanal
+function nextWednesdayUTC() {
+  const n = new Date(), d = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), 0, 10, 0));
+  let add = (3 - d.getUTCDay() + 7) % 7;
+  if (add === 0 && n.getTime() > d.getTime()) add = 7;
+  d.setUTCDate(d.getUTCDate() + add);
+  return d;
+}
+async function loadXs() {
+  const x = await getJson("/api/xs");
+  if (!x) return;
+  const card = (label, val, sub, c) => `<div class="card"><div class="label">${label}</div><div class="value ${c || ""}">${val}</div><div class="mono" style="font-size:11px;margin-top:2px">${sub || ""}</div></div>`;
+  const total = x.realized + x.unrealized;
+  document.getElementById("xs-cards").innerHTML =
+    card("Capital (papel)", "$" + x.equity.toFixed(2), `inicial $${x.config.bankroll.toFixed(0)} &middot; $${x.config.leg} por pata`, cls(total)) +
+    card("PnL realizado", money(x.realized), "", cls(x.realized)) + card("No realizado", money(x.unrealized), "", cls(x.unrealized)) +
+    card("Semanas cerradas", x.n_weeks, `${x.win_weeks} ganadoras`) +
+    card("Media semanal", x.avg_week_pct === null ? "--" : (x.avg_week_pct >= 0 ? "+" : "") + x.avg_week_pct.toFixed(2) + "%", "del capital", x.avg_week_pct === null ? "" : cls(x.avg_week_pct)) +
+    card("Próximo reequilibrio", fmtTime(nextWednesdayUTC().toISOString()), "miércoles 00:10 UTC");
+  const ob = document.getElementById("xs-open");
+  ob.innerHTML = x.open.length ? "" : '<tr><td colspan="8" class="empty">Todavía no hay cartera: se arma en el primer ciclo.</td></tr>';
+  for (const o of x.open) ob.insertAdjacentHTML("beforeend", `<tr><td class="${o.side}">${o.side === "long" ? "LARGO" : "CORTO"}</td><td>${o.symbol}</td><td class="${cls(o.mom)}">${o.mom === null || o.mom === undefined ? "--" : (o.mom * 100).toFixed(1) + "%"}</td>
+    <td>$${o.notional.toFixed(0)}</td><td>${px(o.entry)}</td><td>${px(o.mark)}</td><td class="${cls(o.unrealized_usd)}">${money(o.unrealized_usd)}</td><td class="mono">${o.carried ? "continúa de la semana anterior" : "nueva"} &middot; ${o.week_key}</td></tr>`);
+  const wb = document.getElementById("xs-weeks");
+  wb.innerHTML = x.weeks.length ? "" : '<tr><td colspan="3" class="empty">La primera semana cierra en el próximo reequilibrio.</td></tr>';
+  for (const w of x.weeks.slice().reverse()) wb.insertAdjacentHTML("beforeend", `<tr><td>${w.week}</td><td class="${cls(w.pnl)}">${money(w.pnl)}</td><td class="${cls(w.ret_pct)}">${w.ret_pct >= 0 ? "+" : ""}${w.ret_pct.toFixed(2)}%</td></tr>`);
+}
+loadXs(); setInterval(loadXs, 60000);
 </script>
 </body>
 </html>
