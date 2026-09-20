@@ -153,6 +153,8 @@ async def _manage_open_position(position) -> None:
     if current_price is None or not position["entry_price"]:
         return
 
+    mult_now = current_price / position["entry_price"]
+
     # Salida por presión de venta (v4, 2026-09-20): si ya vendieron K compradores
     # distintos desde nuestro llenado, se vende todo lo que quede -- ver el
     # razonamiento y los números en config/settings.py::SELL_PRESSURE_EXIT_K.
@@ -178,7 +180,6 @@ async def _manage_open_position(position) -> None:
     # Camino rápido: revisando cada pocos segundos, la mayoría de las
     # posiciones no tiene nada que hacer -- sin tocar la base salvo que el
     # precio marque un nuevo máximo.
-    mult_now = current_price / position["entry_price"]
     if current_price > (position["peak_price"] or 0):
         with get_conn() as conn:
             update_peak_price(conn, position["id"], current_price)
