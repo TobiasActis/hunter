@@ -226,3 +226,11 @@ try:
 except Exception as e:  # la revisión diaria nunca debe fallar por esta sección
     print(f"(sección 6 no disponible: {e})")
 conn.close()
+
+
+# ------------------------------------- 7) tablero de estrategias cripto en papel (momentum, funding, laboratorio de scalping, cerebro, CRT)
+try:
+    import crypto_review
+    crypto_review.main()
+except Exception as e:                                # nunca romper el reporte de memecoins por esto
+    print("(tablero cripto no disponible:", e, ")")
