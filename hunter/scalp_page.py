@@ -51,6 +51,7 @@ SCALP_PAGE = """<!DOCTYPE html>
     <button class="tabbtn active" data-tab="resumen" onclick="showTab('resumen')">Resumen</button>
     <button class="tabbtn" data-tab="cerebro" onclick="showTab('cerebro')">Cerebro (aprende solo)</button>
     <button class="tabbtn" data-tab="momentum" onclick="showTab('momentum')">Momentum semanal</button>
+    <button class="tabbtn" data-tab="funding" onclick="showTab('funding')">Funding semanal</button>
     <button class="tabbtn" data-tab="motor" onclick="showTab('motor')">Motor CRT</button>
     <button class="tabbtn" data-tab="journal" onclick="showTab('journal')">Diario manual</button>
   </div>
@@ -103,6 +104,22 @@ SCALP_PAGE = """<!DOCTYPE html>
     <table><thead><tr><th>Cerrada</th><th>Moneda</th><th>Lado</th><th>Motivo</th><th>Entrada</th><th>Salida</th><th>PnL</th></tr></thead><tbody id="xs-exits"></tbody></table>
     <h2>Semanas cerradas</h2>
     <table><thead><tr><th>Semana</th><th>Resultado</th><th>% del capital</th></tr></thead><tbody id="xs-weeks"></tbody></table>
+  </div>
+
+  <div class="tab" id="tab-funding" hidden>
+    <h2>Funding entre monedas (papel)</h2>
+    <details class="info"><summary>C&oacute;mo funciona y qu&eacute; esperar</summary>
+      <p>Cada lunes 00:10 UTC mira el <b>funding</b> de 28 monedas de futuros perpetuos de Binance durante los &uacute;ltimos 3 d&iacute;as (lo que pagan los largos a los cortos; alto = muchos largos apalancados). <b>Compra las 5 con funding m&aacute;s bajo y vende las 5 con funding m&aacute;s alto</b>, $500 por pata repartidos en partes iguales, y mantiene 7 d&iacute;as. Lo que se repite no paga costo (comisi&oacute;n 0,07% por lado) y el funding se cobra o se paga de verdad cada 8 horas. La primera cartera se arma el primer lunes despu&eacute;s del despliegue.</p>
+      <p><b>Control de riesgo:</b> stop-loss de 40% por posici&oacute;n (revisado cada 5 minutos con velas reales). Medido con velas de 1 hora dej&oacute; el retorno igual y baj&oacute; la peor semana de -14% a -8%; stops m&aacute;s cortos empeoraban el resultado.</p>
+      <p><b>Qu&eacute; esperar:</b> el backtest 2020-2026 dio +49% a +96% anual neto seg&uacute;n el d&iacute;a de arranque (7 de 7 positivos), Sharpe 0,8 a 1,4, y con capital sin apalancar (0,5 por pata) entre +31% y +37% anual con ca&iacute;das de -25% a -40%. Resisti&oacute; ventanas de 1 a 14 d&iacute;as, ambas mitades del tiempo, sin 2021 (+42%) y un ranking al azar (~0). <b>En contra:</b> casi todo viene de la pata larga, 2021 aport&oacute; +308% y 2023 fue -34%, usa 28 monedas sobrevivientes de hoy y hay monedas casi siempre en el mismo extremo, as&iacute; que puede haber un efecto de identidad. Con menos de 12 semanas no se puede concluir nada: mirar la tendencia, no cada semana.</p>
+    </details>
+    <div class="stats" id="fd-cards"></div>
+    <h2>Cartera actual</h2>
+    <table><thead><tr><th>Lado</th><th>Moneda</th><th>Funding diario</th><th>Nocional</th><th>Entrada</th><th>Precio</th><th>PnL no realizado</th><th>Funding acumulado</th><th>Stop-loss</th><th>Origen</th></tr></thead><tbody id="fd-open"></tbody></table>
+    <h2>Cierres por stop-loss</h2>
+    <table><thead><tr><th>Cerrada</th><th>Moneda</th><th>Lado</th><th>Entrada</th><th>Salida</th><th>PnL</th></tr></thead><tbody id="fd-exits"></tbody></table>
+    <h2>Semanas cerradas</h2>
+    <table><thead><tr><th>Semana</th><th>Resultado</th><th>% del capital</th></tr></thead><tbody id="fd-weeks"></tbody></table>
   </div>
 
   <div class="tab" id="tab-motor" hidden>
@@ -322,7 +339,7 @@ function reading(n, avg) {
 async function getJson(url) { try { return await (await fetch(url)).json(); } catch (e) { return null; } }
 function btKey(t) { return `${t.symbol} ${t.horizon}h`; }
 async function loadSummary() {
-  const [m, b, j, x] = await Promise.all([getJson("/api/scalp"), getJson("/api/brain_trades"), getJson("/api/journal"), getJson("/api/xs")]);
+  const [m, b, j, x, fdv] = await Promise.all([getJson("/api/scalp"), getJson("/api/brain_trades"), getJson("/api/journal"), getJson("/api/xs"), getJson("/api/fd")]);
   const rows = [], cards = [], open = [], closed = [];
   const card = (label, val, sub, c) => `<div class="card"><div class="label">${label}</div><div class="value ${c || ""}">${val}</div><div class="mono" style="font-size:11px;margin-top:2px">${sub || ""}</div></div>`;
   if (b) {
@@ -361,6 +378,14 @@ async function loadSummary() {
     rows.push(`<tr><td><b>Momentum semanal</b></td><td class="mono what">Compra las monedas que más subieron en 28 días y vende las que más cayeron (45 líquidas), reequilibra cada miércoles</td><td>${x.n_weeks}</td><td>${x.open.length}</td>
       <td>${x.n_weeks ? (x.win_weeks / x.n_weeks * 100).toFixed(0) + "%" : "--"}</td><td class="${cls(total)}">${money(total)}</td>
       <td class="${x.avg_week_pct === null ? "" : cls(x.avg_week_pct)}">${x.avg_week_pct === null ? "--" : (x.avg_week_pct >= 0 ? "+" : "") + x.avg_week_pct.toFixed(2) + "% / semana"}</td><td>${rd}</td></tr>`);
+  }
+  if (fdv) {
+    const total = fdv.realized + fdv.unrealized;
+    cards.push(card("Funding semanal (papel)", "$" + fdv.equity.toFixed(2), `PnL ${money(total)} &middot; inicial $${fdv.config.bankroll.toFixed(0)}`, cls(total)));
+    const rd = fdv.n_weeks < 12 ? `Muy pronto (${fdv.n_weeks} de 12 semanas)` : (fdv.avg_week_pct < 0 ? "Pierde hasta ahora" : "Gana hasta ahora (falta confirmar)");
+    rows.push(`<tr><td><b>Funding semanal</b></td><td class="mono what">Compra las 5 monedas con funding más bajo y vende las 5 con funding más alto (28 monedas de futuros), reequilibra cada lunes</td><td>${fdv.n_weeks}</td><td>${fdv.open.length}</td>
+      <td>${fdv.n_weeks ? (fdv.win_weeks / fdv.n_weeks * 100).toFixed(0) + "%" : "--"}</td><td class="${cls(total)}">${money(total)}</td>
+      <td class="${fdv.avg_week_pct === null ? "" : cls(fdv.avg_week_pct)}">${fdv.avg_week_pct === null ? "--" : (fdv.avg_week_pct >= 0 ? "+" : "") + fdv.avg_week_pct.toFixed(2) + "% / semana"}</td><td>${rd}</td></tr>`);
   }
   document.getElementById("sum-cards").innerHTML = cards.join("");
   document.getElementById("sum-body").innerHTML = rows.join("") || '<tr><td colspan="8" class="empty">Cargando...</td></tr>';
@@ -428,6 +453,40 @@ async function loadXs() {
   for (const w of x.weeks.slice().reverse()) wb.insertAdjacentHTML("beforeend", `<tr><td>${w.week}</td><td class="${cls(w.pnl)}">${money(w.pnl)}</td><td class="${cls(w.ret_pct)}">${w.ret_pct >= 0 ? "+" : ""}${w.ret_pct.toFixed(2)}%</td></tr>`);
 }
 loadXs(); setInterval(loadXs, 60000);
+
+// ---------- funding semanal
+function nextMondayUTC() {
+  const n = new Date(), d = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), 0, 10, 0));
+  let add = (1 - d.getUTCDay() + 7) % 7;
+  if (add === 0 && n.getTime() > d.getTime()) add = 7;
+  d.setUTCDate(d.getUTCDate() + add);
+  return d;
+}
+async function loadFd() {
+  const f = await getJson("/api/fd");
+  if (!f) return;
+  const card = (label, val, sub, c) => `<div class="card"><div class="label">${label}</div><div class="value ${c || ""}">${val}</div><div class="mono" style="font-size:11px;margin-top:2px">${sub || ""}</div></div>`;
+  const total = f.realized + f.unrealized;
+  document.getElementById("fd-cards").innerHTML =
+    card("Capital (papel)", "$" + f.equity.toFixed(2), `inicial $${f.config.bankroll.toFixed(0)} &middot; $${f.config.leg} por pata`, cls(total)) +
+    card("PnL realizado", money(f.realized), "", cls(f.realized)) + card("No realizado", money(f.unrealized), "", cls(f.unrealized)) +
+    card("Semanas cerradas", f.n_weeks, `${f.win_weeks} ganadoras`) +
+    card("De dónde viene", `precio ${money(f.decomp.price)}`, `funding ${money(f.decomp.funding)} &middot; comisiones ${money(f.decomp.fees)}`) +
+    card("Stops", f.n_stop, `SL ${f.config.sl_pct.toFixed(0)}%`) +
+    card("Media semanal", f.avg_week_pct === null ? "--" : (f.avg_week_pct >= 0 ? "+" : "") + f.avg_week_pct.toFixed(2) + "%", "del capital", f.avg_week_pct === null ? "" : cls(f.avg_week_pct)) +
+    card("Próximo reequilibrio", fmtTime(nextMondayUTC().toISOString()), "lunes 00:10 UTC");
+  const ob = document.getElementById("fd-open");
+  ob.innerHTML = f.open.length ? "" : '<tr><td colspan="10" class="empty">Todavía no hay cartera: se arma el primer lunes 00:10 UTC.</td></tr>';
+  for (const o of f.open) ob.insertAdjacentHTML("beforeend", `<tr><td class="${o.side}">${o.side === "long" ? "LARGO" : "CORTO"}</td><td>${o.symbol}</td><td class="mono">${o.score === null || o.score === undefined ? "--" : (o.score * 100).toFixed(4) + "%"}</td>
+    <td>$${o.notional.toFixed(0)}</td><td>${px(o.entry)}</td><td>${px(o.mark)}</td><td class="${cls(o.unrealized_usd)}">${money(o.unrealized_usd)}</td><td class="${cls(o.funding_usd)}">${money(o.funding_usd)}</td><td class="mono">${px(o.sl)}</td><td class="mono">${o.carried ? "continúa de la semana anterior" : "nueva"} &middot; ${o.week_key}</td></tr>`);
+  const eb = document.getElementById("fd-exits");
+  eb.innerHTML = f.recent_exits.length ? "" : '<tr><td colspan="6" class="empty">Todavía ningún stop se activó.</td></tr>';
+  for (const e of f.recent_exits) eb.insertAdjacentHTML("beforeend", `<tr><td>${fmtTime(e.closed_at)}</td><td>${e.symbol}</td><td class="${e.side}">${e.side === "long" ? "LARGO" : "CORTO"}</td><td>${px(e.entry)}</td><td>${px(e.exit_price)}</td><td class="${cls(e.pnl_usd)}">${money(e.pnl_usd)}</td></tr>`);
+  const wb = document.getElementById("fd-weeks");
+  wb.innerHTML = f.weeks.length ? "" : '<tr><td colspan="3" class="empty">La primera semana cierra en el segundo reequilibrio.</td></tr>';
+  for (const w of f.weeks.slice().reverse()) wb.insertAdjacentHTML("beforeend", `<tr><td>${w.week}</td><td class="${cls(w.pnl)}">${money(w.pnl)}</td><td class="${cls(w.ret_pct)}">${w.ret_pct >= 0 ? "+" : ""}${w.ret_pct.toFixed(2)}%</td></tr>`);
+}
+loadFd(); setInterval(loadFd, 60000);
 </script>
 </body>
 </html>

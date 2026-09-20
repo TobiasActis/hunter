@@ -781,6 +781,13 @@ def api_xs():
     return Response(content=json.dumps(get_snapshot(), default=str).encode("utf-8"), media_type="application/json")
 
 
+@app.get("/api/fd")
+def api_fd():
+    # Senal de funding entre monedas en PAPEL (core/xs_funding.py).
+    from core.xs_funding import get_snapshot
+    return Response(content=json.dumps(get_snapshot(), default=str).encode("utf-8"), media_type="application/json")
+
+
 @app.get("/api/brain_trades")
 def api_brain_trades():
     # Posiciones de PAPEL abiertas por el cerebro con sus senales (core/market_brain.py).
