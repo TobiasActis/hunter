@@ -3,7 +3,7 @@ Momentum semanal entre monedas (cross-sectional) en PAPEL: cada semana compra (l
 28 dias y vende (corto) las que mas cayeron, entre las ~45 mas liquidas de Binance. NUNCA opera de verdad.
 
 Reglas (fijadas con el backtest 2019-2026, 70 monedas; ver memoria del proyecto): universo en cada fecha = monedas con >= 120 dias de
-historia y volumen medio de 30 dias >= $10M, top TOPN por volumen; se ordena por retorno de LOOKBACK dias medido al cierre del LUNES;
+historia, volumen medio de 30 dias >= $10M y desvio diario >= 0.4% (saca estables), top TOPN por volumen; se ordena por retorno de LOOKBACK dias medido al cierre del LUNES;
 largo quintil superior / corto quintil inferior, pesos iguales (cada pata suma NOTIONAL_LEG); se opera el miercoles 00:10 UTC (~ cierre del
 martes: retraso de 1 dia, como en el backtest) y se mantiene 7 dias. Las posiciones que se repiten (misma moneda y lado) siguen sin costo.
 Costo 0.07% por lado sobre el nocional operado. Funding de los cortos NO incluido.
@@ -31,6 +31,7 @@ TOPN = 45
 UNIVERSE_FETCH = 60            # monedas a bajar (se filtra despues por elegibilidad y se recorta a TOPN)
 MIN_HIST_DAYS = 120
 MIN_VOL30 = 10e6
+MIN_DAILY_STD = 0.004          # excluye monedas estables sin lista: desvio diario de 30 dias < 0.4% (RLUSD, U, etc.)
 NOTIONAL_LEG = 500.0
 BANKROLL = 1000.0
 FEE_SIDE = 0.0007
@@ -70,7 +71,8 @@ def select_portfolio(closes: pd.DataFrame, qvols: pd.DataFrame, signal_date: pd.
         return [], [], [], {}
     hist = c.notna().sum()
     vol30 = q.tail(30).mean()
-    elig = [s for s in c.columns if hist[s] >= MIN_HIST_DAYS and vol30[s] >= MIN_VOL30 and not np.isnan(c[s].iloc[-1])
+    dstd = c.pct_change(fill_method=None).tail(30).std()
+    elig = [s for s in c.columns if hist[s] >= MIN_HIST_DAYS and vol30[s] >= MIN_VOL30 and dstd[s] >= MIN_DAILY_STD and not np.isnan(c[s].iloc[-1])
             and not np.isnan(c[s].iloc[-1 - LOOKBACK])]
     elig = sorted(elig, key=lambda s: -vol30[s])[:TOPN]
     if len(elig) < 12:
