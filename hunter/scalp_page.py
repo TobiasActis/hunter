@@ -25,6 +25,13 @@ SCALP_PAGE = """<!DOCTYPE html>
   .empty { color:#8b949e; font-style:italic; padding:12px 0; }
   .pos { color:#3fb950; } .neg { color:#f85149; }
   .long { color:#3fb950; } .short { color:#f85149; }
+  form.jf { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; background:#161b22; border:1px solid #30363d; border-radius:8px; padding:14px; margin:10px 0; }
+  form.jf label { display:flex; flex-direction:column; font-size:11px; color:#8b949e; gap:4px; }
+  form.jf input, form.jf select { background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:6px 8px; font-family:inherit; font-size:12px; }
+  form.jf button, td button { background:#238636; color:#fff; border:1px solid #2ea043; border-radius:6px; padding:6px 12px; font-family:inherit; font-size:12px; cursor:pointer; }
+  td button.sec { background:#21262d; border-color:#30363d; color:#c9d1d9; padding:2px 8px; font-size:11px; }
+  .msg { font-size:12px; margin:4px 0; min-height:16px; }
+  #j-chart { width:100%; max-width:640px; height:120px; background:#161b22; border:1px solid #30363d; border-radius:8px; }
 </style>
 </head>
 <body>
@@ -35,6 +42,32 @@ SCALP_PAGE = """<!DOCTYPE html>
   <div class="banner warn"><b>Ojo:</b> en el backtest hist&oacute;rico (2020-2026, BTC/ETH/SOL, con comisiones) este m&eacute;todo dio <b>entre -0,2R y -1,3R por operaci&oacute;n</b> y la operaci&oacute;n inversa rindi&oacute; casi igual:
     no mostr&oacute; ventaja. Esta pantalla sirve para medirlo en vivo con datos nuevos, no porque se sepa que funciona. La palanca multiplica ganancias y p&eacute;rdidas.</div>
 
+  <div class="sub"><a href="#journal">Diario de operaciones (manual, demo)</a> &middot; <a href="#motor">Motor CRT autom&aacute;tico (papel)</a></div>
+
+  <h2 id="journal">Diario de operaciones (manual, en demo)</h2>
+  <div class="sub">Anot&aacute; cada operaci&oacute;n que hagas en demo siguiendo un m&eacute;todo (por ejemplo el de un canal). Calcula el R neto de comisiones, tu win-rate con margen de error,
+    la expectativa y cu&aacute;nto win-rate necesit&aacute;s para no perder. Con 30 a 50 operaciones cerradas ya se puede empezar a distinguir un m&eacute;todo con ventaja de uno al azar. Nada de esto opera de verdad.</div>
+  <div class="stats" id="j-stats"></div>
+  <div class="banner" id="j-verdict">Todav&iacute;a no hay operaciones anotadas.</div>
+  <svg id="j-chart" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+  <form class="jf" id="j-form" onsubmit="addTrade(event)">
+    <label>M&eacute;todo<input name="method" value="Show del Trading" maxlength="40"></label>
+    <label>Activo<input name="symbol" value="BTC" maxlength="20" required></label>
+    <label>Marco<input name="tf" value="3m" maxlength="10"></label>
+    <label>Lado<select name="side"><option value="long">LARGO</option><option value="short">CORTO</option></select></label>
+    <label>Entrada<input name="entry" type="number" step="any" required></label>
+    <label>Stop<input name="stop" type="number" step="any" required></label>
+    <label>Objetivo (opcional)<input name="target" type="number" step="any"></label>
+    <label>Salida (si ya cerr&oacute;)<input name="exit_price" type="number" step="any"></label>
+    <label>Comisi&oacute;n por lado %<input name="fee_side_pct" type="number" step="any" value="0.07"></label>
+    <label>Palanca (opcional)<input name="leverage" type="number" step="any"></label>
+    <label>Nota<input name="note" maxlength="200"></label>
+    <label>&nbsp;<button type="submit">Anotar operaci&oacute;n</button></label>
+  </form>
+  <div class="msg" id="j-msg"></div>
+  <table><thead><tr><th>#</th><th>Fecha</th><th>M&eacute;todo</th><th>Activo</th><th>TF</th><th>Lado</th><th>Entrada</th><th>Stop</th><th>Stop %</th><th>Objetivo</th><th>Ratio plan.</th><th>Salida</th><th>R neto</th><th></th></tr></thead><tbody id="j-body"></tbody></table>
+
+  <h2 id="motor">Motor CRT autom&aacute;tico (papel)</h2>
   <div class="stats">
     <div class="card"><div class="label">Capital (papel)</div><div class="value" id="equity">--</div><div class="mono" id="equity-sub" style="font-size:11px"></div></div>
     <div class="card"><div class="label">PnL realizado</div><div class="value" id="pnl">--</div></div>
@@ -103,7 +136,86 @@ async function refresh() {
       <td>${px(p.entry)}</td><td>${px(p.exit_price)}</td><td>${p.exit_reason}</td><td>${p.leverage.toFixed(1)}x</td><td class="${cls(p.pnl_usd)}">${money(p.pnl_usd)}</td><td class="${cls(p.r_multiple)}">${p.r_multiple.toFixed(2)}R</td></tr>`);
   }
 }
+
+const esc = s => String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, ch => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[ch]));
+const pctf = x => (x === null || x === undefined) ? "--" : (x * 100).toFixed(1) + "%";
+const rf = x => (x === null || x === undefined) ? "--" : (x >= 0 ? "+" : "") + x.toFixed(2) + "R";
+function setMsg(t, err) { const m = document.getElementById("j-msg"); m.textContent = t; m.style.color = err ? "#f85149" : "#3fb950"; }
+function verdict(s) {
+  if (!s.n_closed) return "Todavía no hay operaciones cerradas. Anotá al menos 30 a 50 para poder sacar conclusiones.";
+  let t = `Con ${s.n_closed} operaciones cerradas, tu win-rate es ${pctf(s.wr)} (intervalo de confianza 95%: ${pctf(s.wr_lo)} a ${pctf(s.wr_hi)}). `;
+  if (s.n_closed < 30) return t + "Es muy pronto: con menos de 30 operaciones el margen de error es enorme.";
+  const need = s.breakeven_wr;
+  if (need !== null && need !== undefined) {
+    if (s.wr_lo > need) t += `Supera con confianza el ${pctf(need)} que necesitás para no perder con tus costos y tu ganancia y pérdida medias reales.`;
+    else if (s.wr_hi < need) t += `Está por debajo del ${pctf(need)} que necesitás para no perder (con tu ganancia y pérdida medias reales).`;
+    else t += `Todavía no se puede distinguir del ${pctf(need)} que necesitás para no perder: seguí anotando.`;
+  }
+  return t + ` Expectativa neta: ${rf(s.expectancy_r)} por operación.`;
+}
+function drawCum(cum) {
+  const svg = document.getElementById("j-chart");
+  if (!cum || cum.length < 1) { svg.innerHTML = ""; return; }
+  const pts = [0].concat(cum), W = 600, H = 120, mn = Math.min(0, ...pts), mx = Math.max(0, ...pts), span = (mx - mn) || 1;
+  const X = i => (i / Math.max(pts.length - 1, 1)) * (W - 20) + 10, Y = v => H - 10 - ((v - mn) / span) * (H - 20);
+  const line = pts.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  svg.innerHTML = `<line x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}" stroke="#30363d" stroke-dasharray="4"/>
+    <polyline points="${line}" fill="none" stroke="${pts[pts.length - 1] >= 0 ? "#3fb950" : "#f85149"}" stroke-width="2"/>
+    <text x="12" y="14" fill="#8b949e" font-size="11">R acumulado (neto de comisiones): ${rf(pts[pts.length - 1])}</text>`;
+}
+function renderJournal(d) {
+  const s = d.stats, card = (label, val, sub) => `<div class="card"><div class="label">${label}</div><div class="value">${val}</div><div class="mono" style="font-size:11px;margin-top:2px">${sub || ""}</div></div>`;
+  let c = card("Cerradas", s.n_closed, `${s.n_open} abiertas &middot; meta 50`);
+  if (s.n_closed) {
+    c += card("Win-rate", pctf(s.wr), `IC 95%: ${pctf(s.wr_lo)} a ${pctf(s.wr_hi)}`);
+    c += card("Gana / pierde (media)", `${rf(s.avg_win_r)} / -${s.avg_loss_r.toFixed(2)}R`, `costo medio ${s.avg_cost_r.toFixed(2)}R por operación`);
+    c += card("WR necesario", pctf(s.breakeven_wr), "para no perder con tus números");
+    c += card("Expectativa", rf(s.expectancy_r), `total ${rf(s.total_r)} &middot; caída máx ${s.max_drawdown_r.toFixed(2)}R`);
+    c += card("Ratio planificado", s.avg_planned_rr === null || s.avg_planned_rr === undefined ? "--" : "1:" + s.avg_planned_rr.toFixed(2), s.share_rr_ge2 === null || s.share_rr_ge2 === undefined ? "" : `${pctf(s.share_rr_ge2)} con ratio &ge; 1:2`);
+  }
+  document.getElementById("j-stats").innerHTML = c;
+  document.getElementById("j-verdict").textContent = verdict(s);
+  drawCum(s.cum_r);
+  const b = document.getElementById("j-body");
+  b.innerHTML = d.trades.length ? "" : '<tr><td colspan="14" class="empty">Sin operaciones todavía.</td></tr>';
+  for (const t of d.trades) {
+    const closed = t.exit_price !== null && t.exit_price !== undefined;
+    b.insertAdjacentHTML("beforeend", `<tr><td>${t.id}</td><td>${fmtTime(t.created_at)}</td><td>${esc(t.method)}</td><td>${esc(t.symbol)}</td><td>${esc(t.tf)}</td>
+      <td class="${t.side}">${t.side === "long" ? "LARGO" : "CORTO"}</td><td>${px(t.entry)}</td><td>${px(t.stop)}</td><td class="mono">${t.stop_pct.toFixed(2)}%</td>
+      <td>${px(t.target)}</td><td class="${t.planned_rr !== null && t.planned_rr < 2 ? "neg" : ""}">${t.planned_rr === null || t.planned_rr === undefined ? "--" : "1:" + t.planned_rr.toFixed(2)}</td>
+      <td>${closed ? px(t.exit_price) : "--"}</td><td class="${cls(t.net_r)}">${rf(t.net_r)}</td>
+      <td>${closed ? "" : `<button class="sec" onclick="closeTrade(${t.id})">Cerrar</button> `}<button class="sec" onclick="deleteTrade(${t.id})">Borrar</button></td></tr>`);
+  }
+}
+async function loadJournal() { renderJournal(await (await fetch("/api/journal")).json()); }
+async function postJson(url, body) {
+  const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || "error");
+  return j;
+}
+async function addTrade(ev) {
+  ev.preventDefault();
+  const body = Object.fromEntries(new FormData(ev.target).entries());
+  try {
+    await postJson("/api/journal/add", body);
+    setMsg("Operación anotada.", false);
+    for (const n of ["entry", "stop", "target", "exit_price", "note"]) ev.target.elements[n].value = "";
+    await loadJournal();
+  } catch (e) { setMsg(e.message, true); }
+}
+async function closeTrade(id) {
+  const v = prompt("Precio de salida de la operación #" + id + ":");
+  if (v === null || v === "") return;
+  try { await postJson("/api/journal/close/" + id, {exit_price: v}); setMsg("Operación cerrada.", false); await loadJournal(); } catch (e) { setMsg(e.message, true); }
+}
+async function deleteTrade(id) {
+  if (!confirm("¿Borrar la operación #" + id + "?")) return;
+  await postJson("/api/journal/delete/" + id, {}); await loadJournal();
+}
 refresh(); setInterval(() => refresh().catch(() => {}), 5000);
+loadJournal().catch(() => {});
+
 </script>
 </body>
 </html>

@@ -774,6 +774,39 @@ async def scalping_page():
     return SCALP_PAGE
 
 
+@app.get("/api/journal")
+def api_journal():
+    # Diario de operaciones manuales en demo (core/journal.py): lista + estadisticas.
+    from core.journal import list_and_stats
+    return Response(content=json.dumps(list_and_stats(), default=str).encode("utf-8"), media_type="application/json")
+
+
+@app.post("/api/journal/add")
+def api_journal_add(body: dict):
+    from core import journal
+    try:
+        return {"id": journal.add_trade(body)}
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/journal/close/{trade_id}")
+def api_journal_close(trade_id: int, body: dict):
+    from core import journal
+    try:
+        journal.close_trade(trade_id, body.get("exit_price"))
+        return {"ok": True}
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/journal/delete/{trade_id}")
+def api_journal_delete(trade_id: int):
+    from core import journal
+    journal.delete_trade(trade_id)
+    return {"ok": True}
+
+
 @app.get("/api/scalp")
 def api_scalp():
     # Scalping en papel de criptos establecidas (core/scalper.py): lectura de data/scalp.db, en hilo aparte.
