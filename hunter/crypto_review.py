@@ -123,7 +123,7 @@ def main():
         lines.append(("Motor CRT", f"(sin datos: {e})", "?"))
     for name, res, gate in lines:
         print(f"- {name}\n    {res}\n    -> {gate}")
-    print("\n(Memecoins: ver secciones 1-6 de este reporte; v4 medida el 2026-09-20: -3.9% por posicion con IC95 negativo, se deja como control.)")
+    print("\n(Memecoins: ver secciones 1-6 de este reporte; v4 termino en -3.7% por operacion (992 posiciones); desde la v5 -tenencia 10 min y stop 15%- se mide por separado.)")
     print("Regla: nada pasa a una prueba real hasta cumplir su criterio; la prueba real la hace el dueno, sin apalancamiento y con dinero que pueda perder.")
 
 

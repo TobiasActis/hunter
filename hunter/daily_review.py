@@ -25,7 +25,7 @@ def setting(key):
     return r["value"] if r else None
 
 
-since = (sys.argv[1] + "T00:00:00") if len(sys.argv) > 1 else (setting("sim_v4_since") or setting("sim_v3_since") or setting("sim_v2_since") or "2026-09-18T22:37:45")
+since = (sys.argv[1] + "T00:00:00") if len(sys.argv) > 1 else (setting("sim_v5_since") or setting("sim_v4_since") or setting("sim_v3_since") or setting("sim_v2_since") or "2026-09-18T22:37:45")
 print(f"Revisión desde {since} (UTC)\n")
 
 bad = {r[0] for r in conn.execute(

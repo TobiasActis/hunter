@@ -310,7 +310,7 @@ function fmtMcap(v) {
   return "$" + v.toFixed(0);
 }
 const EXIT_LABELS = {stop_loss: "stop-loss", take_profit_60: "TP1", take_profit_120: "TP2", trailing_stop: "trailing",
-  time_exit: "1 h", sell_pressure: "presión de venta", manual_close: "manual"};
+  time_exit: "tiempo máx.", sell_pressure: "presión de venta", manual_close: "manual"};
 function fmtExits(list) {
   if (!list || list.length === 0) return "--";
   return list.map(r => EXIT_LABELS[r] || r.replace("_price_anomaly", " (anomalía)")).join(" → ");
@@ -1074,9 +1074,10 @@ def _build_api_data() -> dict:
             ("v2", "v2 - simulación realista (costos, slippage, latencia)", "sim_v2_since"),
             ("v3", "v3 - sin perseguir precio + revisión cada 5 s", "sim_v3_since"),
             ("v4", "v4 - + salida por presión de venta", "sim_v4_since"),
+            ("v5", "v5 - tenencia máxima 10 min + stop-loss 15%", "sim_v5_since"),
         ]
         marks = {r["key"]: r["value"] for r in conn.execute(
-            "SELECT key, value FROM dashboard_settings WHERE key IN ('sim_v2_since','sim_v3_since','sim_v4_since')")}
+            "SELECT key, value FROM dashboard_settings WHERE key IN ('sim_v2_since','sim_v3_since','sim_v4_since','sim_v5_since')")}
         bounds = [(vid, label, marks.get(key)) for vid, label, key in VERSIONS if marks.get(key)]
         versions = []
         if bounds:

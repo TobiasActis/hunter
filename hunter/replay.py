@@ -69,7 +69,7 @@ def _sell_value(P, amount, frac, t_decide, spot_hint):
     return (gross - exit_cost(gross, FEES)) - amount * frac
 
 
-def simulate(P, interval=5.0, stop=0.20, tps=((1.60, 0.40), (2.20, 0.5)), trail=0.30, hold=3600.0, force_t=None):
+def simulate(P, interval=5.0, stop=0.15, tps=((1.60, 0.40), (2.20, 0.5)), trail=0.30, hold=600.0, force_t=None):        # v5: stop 15%, tenencia 10 min
     """PnL de la posicion con las reglas de salida vigentes; `force_t` agrega una salida
     total forzada a partir de ese segundo (contrafactual)."""
     remaining = 1.0; pnl = 0.0; peak = P["entry"]; tiers_done = 0

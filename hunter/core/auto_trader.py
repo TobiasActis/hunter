@@ -12,7 +12,7 @@ simulación que ya existía con botones manuales.
 Regla de ENTRADA: apenas se detecta una alerta de manada, se abre una
 posición paper de $DEFAULT_POSITION_USD al precio de ese momento. Si ya
 tenemos una posición abierta de ese mismo token, o cerramos una hace
-menos de HOLD_SECONDS, NO se abre otra.
+menos de REENTRY_BLOCK_SECONDS (1 h), NO se abre otra.
 
 Regla de SALIDA -- REDISEÑADA el 2026-09-16 analizando 686 alertas
 reales, y CORREGIDA ese mismo día unas horas después al ver los
@@ -58,7 +58,11 @@ nuestro sistema" -- correcto, había un bug real, ver punto 1):
      con TRAILING STOP (cae TRAILING_STOP_PCT desde el máximo
      alcanzado -> se vende el resto).
 
-  3. HOLD_SECONDS (1h) sigue como red de seguridad final.
+  3. HOLD_SECONDS sigue como red de seguridad final: 1 h hasta la v4; 10 min desde la v5 (2026-09-20).
+
+V5 (2026-09-20, medida con las trayectorias reales de 985 posiciones de v4 y validada en otro periodo, 1145 posiciones de v2+v3): tenencia maxima 10 min
+(+$0.31/trade, IC95 [+0.14,+0.49] en v4; +$0.18 [+0.07,+0.30] en la validacion) y stop-loss 15% (+$0.05 y +$0.09 [+0.03,+0.14]); juntas +$0.35 [+0.17,+0.54] y
++$0.25 [+0.12,+0.38]. Mejora chica (~0.5-0.7% del monto): v4 seguia en -3.7% por operacion. El bloqueo de reentrada del mismo token sigue en 1 h.
 
 NO implementado a propósito: "comprar más si el token corrige, como
 hacen los traders grandes". No tenemos ninguna señal validada hoy que
@@ -79,15 +83,16 @@ from config.settings import SELL_PRESSURE_EXIT_K
 
 logger = logging.getLogger("hunter.auto_trader")
 
-HOLD_SECONDS = 60 * 60  # 1 hora -- red de seguridad final, mismo criterio que brain.py
+HOLD_SECONDS = 10 * 60  # 10 min desde la v5 (antes 1 h) -- red de seguridad final: lo que sigue abierto se cierra
+REENTRY_BLOCK_SECONDS = 60 * 60  # NO se reabre el mismo token si hay una posicion abierta o cerrada hace menos de esto (sigue en 1 h)
 CHECK_INTERVAL_SECONDS = 5  # antes 60: con 60s los stop-loss salían a 0.59x en vez de ~0.77x
 
 # Corta TODO lo que quede si el precio cae esto desde la ENTRADA (no
 # desde el pico -- eso es TRAILING_STOP_PCT, un concepto distinto).
-# -20% porque los datos muestran 0% de recuperación ya desde -15% en
-# los primeros 5 minutos -- se deja un pequeño margen sobre ese piso
-# para no reaccionar a ruido normal de precio.
-STOP_LOSS_PCT = 0.20
+# v5 (2026-09-20): -15% (antes -20%). Con las trayectorias reales, el stop de 15% rinde +$0.05 a +$0.09 por
+# operacion mas que el de 20% (IC95 [+0.00,+0.10] y [+0.03,+0.14] en dos periodos): los stops de v4 salian a 0.65x en
+# promedio, o sea que el precio cae muy rapido despues de cruzar el nivel.
+STOP_LOSS_PCT = 0.15
 STOP_LOSS_REASON = "stop_loss"
 
 # (multiplicador que dispara la venta, fracción de LO QUE QUEDA a
@@ -113,7 +118,7 @@ _in_flight: set = set()
 
 async def auto_open_on_alert(chain: str, token_address: str, alert_id: int | None = None):
     with get_conn() as conn:
-        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=HOLD_SECONDS)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=REENTRY_BLOCK_SECONDS)).isoformat()
         if has_recent_or_open_position(conn, chain, token_address, cutoff):
             logger.info(
                 f"Auto-trader: NO se abre posición nueva para {token_address} ({chain}) -- "
