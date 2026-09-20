@@ -38,6 +38,7 @@ N_MAX = 12
 MIN_STOP_PCT = 0.0005
 POLL_SECONDS = 15
 KLINES_LIMIT = 40
+FRESH_MS = 90_000
 SCALP_DB = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "scalp.db")
 
 SCHEMA = """
@@ -207,6 +208,11 @@ async def poll_once(client):
                 c.execute("INSERT OR REPLACE INTO scalp_state VALUES (?,?,?)", (symbol, tf, kl[-2][0]))
                 sig = detect_crt(kl[-3], kl[-2])
                 if not sig:
+                    continue
+                # Señal vieja (ej. recien arrancado el proceso): el precio de apertura de la vela en formacion ya
+                # no es el precio actual, entrar ahi seria inventar el llenado. Solo se opera si la vela abrio hace poco.
+                if now_ms - kl[-1][0] > FRESH_MS:
+                    logger.info(f"Scalper: senal CRT {sig[0]} en {symbol} {tf} IGNORADA por vieja ({(now_ms - kl[-1][0]) / 1000:.0f}s desde la apertura)")
                     continue
                 if c.execute("SELECT 1 FROM scalp_positions WHERE status='open' AND symbol=? AND tf=?", (symbol, tf)).fetchone():
                     continue
