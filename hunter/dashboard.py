@@ -33,6 +33,7 @@ from core.ev_calculator import FeeStructure, net_result_of_position
 from core.paper_trading import open_position, close_position, DEFAULT_POSITION_USD, fees_for, free_cash_usd
 from config.settings import SIM_BANKROLL_USD
 from core.sol_price import get_cached_sol_usd
+from core.eth_price import get_cached_eth_usd
 
 _FEES = FeeStructure()
 
@@ -186,7 +187,7 @@ HTML_PAGE = """<!DOCTYPE html>
   </div>
   <table id="alerts-table">
     <thead><tr>
-      <th>Hora</th><th>Token</th><th>Edad del token</th><th>Wallets</th>
+      <th>Hora</th><th>Token</th><th>Edad del token</th><th>MCap alerta</th><th>Wallets</th>
       <th>brain.py</th>
       <th>win-rate wallets</th>
       <th>compra ($)</th>
@@ -214,6 +215,7 @@ HTML_PAGE = """<!DOCTYPE html>
   <table id="positions-table">
     <thead><tr>
       <th>Abierta</th><th>Token</th><th>USD</th><th>Restante</th>
+      <th>MCap entrada &rarr; ahora/salida</th>
       <th>Precio (%)</th><th>PnL total ($)</th><th>PnL total (%)</th>
       <th>Estado</th><th></th>
     </tr></thead>
@@ -259,6 +261,20 @@ function fmtTime(iso) {
   const pad = n => String(n).padStart(2, "0");
   return `${ars.getUTCFullYear()}-${pad(ars.getUTCMonth() + 1)}-${pad(ars.getUTCDate())} `
        + `${pad(ars.getUTCHours())}:${pad(ars.getUTCMinutes())}:${pad(ars.getUTCSeconds())}`;
+}
+// Market cap (USD) de un token de Robinhood: precio (ETH/token) x supply fijo de
+// 1.000 millones (verificado on-chain, igual en todos los tokens de Pons) x precio del
+// ETH actual (aproximado: cambia pocos % en días). Solana: sin dato (unidad de precio
+// sin verificar, no se inventa).
+function mcapUsd(chain, price) {
+  if (chain !== "robinhood" || !price || !lastData || !lastData.eth_usd) return null;
+  return price * 1e9 * lastData.eth_usd;
+}
+function fmtMcap(v) {
+  if (v === null || v === undefined || isNaN(v)) return "--";
+  if (v >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M";
+  if (v >= 1e3) return "$" + (v / 1e3).toFixed(1) + "k";
+  return "$" + v.toFixed(0);
 }
 function fmtNum(x, digits) {
   if (x === null || x === undefined) return "--";
@@ -473,7 +489,7 @@ function renderAlerts() {
   const alertsBody = document.getElementById("alerts-body");
   alertsBody.innerHTML = "";
   if (slice.length === 0) {
-    alertsBody.innerHTML = '<tr><td colspan="15" class="empty">Todavía no se detectó ninguna manada.</td></tr>';
+    alertsBody.innerHTML = '<tr><td colspan="16" class="empty">Todavía no se detectó ninguna manada.</td></tr>';
   }
   for (const a of slice) {
     const existing = lastData.positions.filter(
@@ -532,6 +548,7 @@ function renderAlerts() {
       <td>${fmtTime(a.triggered_at)}</td>
       <td>${tokenCell(a.chain, a.token_address)}</td>
       <td class="mono">${fmtAge(a.token_age_seconds)}</td>
+      <td class="mono">${fmtMcap(mcapUsd(a.chain, a.price_at_alert))}</td>
       <td>${walletsText}</td>
       <td class="mono">${brainText}</td>
       <td class="mono">${winRateText}</td>
@@ -559,7 +576,7 @@ function renderPositions() {
   const positionsBody = document.getElementById("positions-body");
   positionsBody.innerHTML = "";
   if (slice.length === 0) {
-    positionsBody.innerHTML = '<tr><td colspan="9" class="empty">Sin posiciones todavía -- usá "Comprar" en una alerta.</td></tr>';
+    positionsBody.innerHTML = '<tr><td colspan="10" class="empty">Sin posiciones todavía -- usá "Comprar" en una alerta.</td></tr>';
   }
   for (const p of slice) {
     const isOpen = p.status === "open";
@@ -593,6 +610,7 @@ function renderPositions() {
       <td>${tokenCell(p.chain, p.token_address)}</td>
       <td>$${Number(p.amount_usd).toFixed(2)}</td>
       <td>${isOpen ? remainingPct + "%" : "--"}</td>
+      <td class="mono">${fmtMcap(mcapUsd(p.chain, p.entry_price))} &rarr; ${fmtMcap(mcapUsd(p.chain, priceCol))}</td>
       <td class="${priceChangePct === null ? '' : (priceChangePct >= 0 ? 'pnl-pos' : 'pnl-neg')}">${priceChangePct === null ? '--' : fmtPct(priceChangePct)}</td>
       <td class="${pnlClass}">${pnlUsdText}</td>
       <td class="${pnlClass}">${pnlPctText}</td>
@@ -857,6 +875,7 @@ def _build_api_data() -> dict:
         "stats": stats,
         "mode": MODE,
         "sol_usd": get_cached_sol_usd(),
+        "eth_usd": get_cached_eth_usd(),
         "default_position_usd": DEFAULT_POSITION_USD,
         "view_cutoff_at": cutoff,
         "alerts": [dict(row) for row in alerts],
