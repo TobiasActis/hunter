@@ -32,18 +32,91 @@ SCALP_PAGE = """<!DOCTYPE html>
   td button.sec { background:#21262d; border-color:#30363d; color:#c9d1d9; padding:2px 8px; font-size:11px; }
   .msg { font-size:12px; margin:4px 0; min-height:16px; }
   #j-chart { width:100%; max-width:640px; height:120px; background:#161b22; border:1px solid #30363d; border-radius:8px; }
+  .tabs { display:flex; gap:6px; margin:14px 0 18px 0; flex-wrap:wrap; border-bottom:1px solid #30363d; }
+  .tabbtn { background:none; border:none; border-bottom:2px solid transparent; color:#8b949e; padding:8px 14px; font-family:inherit; font-size:13px; cursor:pointer; }
+  .tabbtn.active { color:#c9d1d9; border-bottom-color:#58a6ff; }
+  .tabbtn:hover { color:#c9d1d9; }
+  details.info { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:8px 14px; margin:8px 0 14px 0; font-size:12px; color:#8b949e; }
+  details.info summary { cursor:pointer; color:#79c0ff; }
+  details.info p { margin:8px 0 0 0; line-height:1.5; }
+  td.what { white-space:normal; max-width:280px; line-height:1.35; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; background:#21262d; color:#c9d1d9; }
+  .tag.paper { background:#1f6feb33; color:#79c0ff; }
 </style>
 </head>
 <body>
-  <h1>HUNTER &middot; Scalping en papel (criptos establecidas)</h1>
-  <div class="sub"><a href="/">&larr; volver a memecoins</a> &middot; se refresca solo cada 5 s &middot; horarios en Buenos Aires (UTC-3)</div>
-  <div class="banner">Paper trading con palanca SIMULADA: no hay claves ni ordenes reales, solo precios p&uacute;blicos de Binance. M&eacute;todo CRT (Candle Range Theory):
-    la vela 2 barre el m&aacute;ximo o m&iacute;nimo de la vela 1 y cierra de vuelta dentro de su rango; se entra en contra del barrido con stop en el extremo barrido y objetivo en el extremo opuesto.</div>
-  <div class="banner warn"><b>Ojo:</b> en el backtest hist&oacute;rico (2020-2026, BTC/ETH/SOL, con comisiones) este m&eacute;todo dio <b>entre -0,2R y -1,3R por operaci&oacute;n</b> y la operaci&oacute;n inversa rindi&oacute; casi igual:
-    no mostr&oacute; ventaja. Esta pantalla sirve para medirlo en vivo con datos nuevos, no porque se sepa que funciona. La palanca multiplica ganancias y p&eacute;rdidas.</div>
+  <h1>HUNTER &middot; Criptos establecidas <span class="tag paper">PAPEL &middot; nada se opera de verdad</span></h1>
+  <div class="sub"><a href="/">&larr; Memecoins</a> &middot; BTC, ETH y SOL &middot; se refresca solo &middot; horarios en Buenos Aires (UTC-3)</div>
+  <div class="tabs">
+    <button class="tabbtn active" data-tab="resumen" onclick="showTab('resumen')">Resumen</button>
+    <button class="tabbtn" data-tab="cerebro" onclick="showTab('cerebro')">Cerebro (aprende solo)</button>
+    <button class="tabbtn" data-tab="motor" onclick="showTab('motor')">Motor CRT</button>
+    <button class="tabbtn" data-tab="journal" onclick="showTab('journal')">Diario manual</button>
+  </div>
 
-  <div class="sub"><a href="#journal">Diario de operaciones (manual, demo)</a> &middot; <a href="#cerebro">Cerebro de mercado (aprende solo)</a> &middot; <a href="#motor">Motor CRT autom&aacute;tico (papel)</a></div>
+  <div class="tab" id="tab-resumen">
+    <div class="stats" id="sum-cards"></div>
+    <h2>Estrategias (todas en papel)</h2>
+    <table><thead><tr><th>Estrategia</th><th>Qu&eacute; hace</th><th>Cerradas</th><th>Abiertas</th><th>Win-rate</th><th>Resultado</th><th>Por operaci&oacute;n</th><th>Lectura</th></tr></thead><tbody id="sum-body"></tbody></table>
+    <h2>Posiciones abiertas ahora</h2>
+    <table><thead><tr><th>Estrategia</th><th>Activo</th><th>Lado</th><th>Entrada</th><th>Precio</th><th>PnL no realizado</th><th>Cierra / detalle</th></tr></thead><tbody id="sum-open"></tbody></table>
+    <h2>&Uacute;ltimos cierres</h2>
+    <table><thead><tr><th>Cerrada</th><th>Estrategia</th><th>Activo</th><th>Lado</th><th>Resultado</th></tr></thead><tbody id="sum-closed"></tbody></table>
+    <details class="info"><summary>C&oacute;mo leer esta pantalla</summary>
+      <p>Todo lo de aqu&iacute; es simulaci&oacute;n con precios reales de Binance: no hay claves ni &oacute;rdenes. Cada estrategia empieza con su propio capital de papel. Con menos de 30 operaciones cerradas el resultado es puro ruido; se empieza a poder juzgar con 100 o m&aacute;s.</p>
+      <p>Los backtests hist&oacute;ricos de todo lo que hay ac&aacute; dieron cero o negativo despu&eacute;s de comisiones. Esta pantalla existe para comprobarlo en vivo, no porque se sepa que funciona.</p>
+    </details>
+  </div>
 
+  <div class="tab" id="tab-cerebro" hidden>
+    <h2>Cerebro: operaciones en papel</h2>
+    <details class="info"><summary>C&oacute;mo funciona y qu&eacute; esperar</summary>
+      <p>Un modelo de aprendizaje autom&aacute;tico aprende de las velas de 1 hora de BTC, ETH y SOL (precio, volumen, volatilidad, hora y lo que hacen los otros activos), se reentrena solo cada semana
+        y cada hora predice la probabilidad de que el precio suba en las pr&oacute;ximas 4 y 24 horas. Si la probabilidad se aleja m&aacute;s de 5 puntos de 50%, abre una posici&oacute;n <b>en papel</b> de $100 (sin palanca) y la cierra al cumplirse el horizonte. Una posici&oacute;n por activo y horizonte a la vez.</p>
+      <p><b>Qu&eacute; esperar:</b> en la investigaci&oacute;n (2020-2026, probando siempre sobre datos posteriores al entrenamiento) acert&oacute; la direcci&oacute;n algo mejor que el azar (AUC 0,52 a 0,55), pero la ganancia bruta (0 a +10 puntos base por operaci&oacute;n) no cubri&oacute; el costo de 14. Lo esperable es que pierda peque&ntilde;o; la prueba en vivo dir&aacute; si eso cambia.</p>
+    </details>
+    <div class="stats" id="bt-cards"></div>
+    <h2>Por activo y horizonte</h2>
+    <table><thead><tr><th>Grupo</th><th>Cerradas</th><th>Win-rate</th><th>PnL</th><th>Bruto medio (bps)</th><th>Neto medio (bps)</th></tr></thead><tbody id="bt-groups"></tbody></table>
+    <h2>Posiciones abiertas</h2>
+    <table><thead><tr><th>Abierta</th><th>Activo</th><th>Horizonte</th><th>Lado</th><th>P(sube)</th><th>Entrada</th><th>Precio</th><th>PnL no realizado</th><th>Cierra</th></tr></thead><tbody id="bt-open"></tbody></table>
+    <h2>Cerradas (&uacute;ltimas 100)</h2>
+    <table><thead><tr><th>Cerrada</th><th>Activo</th><th>Horizonte</th><th>Lado</th><th>Entrada</th><th>Salida</th><th>Retorno bruto</th><th>PnL</th></tr></thead><tbody id="bt-closed"></tbody></table>
+    <h2>Qu&eacute; predice y qu&eacute; tan bien acierta</h2>
+  <div class="sub" id="brain-meta">Cargando...</div>
+  <table><thead><tr><th>Activo</th><th>Horizonte</th><th>P(sube) &uacute;ltima</th><th>Vela</th><th>Evaluadas</th><th>AUC en vivo</th><th>AUC investigaci&oacute;n</th><th>Acierta direcci&oacute;n</th><th>Se&ntilde;ales</th><th>Bruto (bps)</th><th>Neto taker (bps)</th><th>Neto maker (bps)</th></tr></thead><tbody id="brain-body"></tbody></table>
+
+  </div>
+
+  <div class="tab" id="tab-motor" hidden>
+    <details class="info"><summary>C&oacute;mo funciona y qu&eacute; esperar</summary>
+      <p>M&eacute;todo CRT (Candle Range Theory) con palanca simulada: la vela 2 barre el m&aacute;ximo o m&iacute;nimo de la vela 1 y cierra de vuelta dentro de su rango; se entra en contra del barrido con stop en el extremo barrido y objetivo en el extremo opuesto. Riesgo 1% del capital por operaci&oacute;n.</p>
+      <p><b>Qu&eacute; esperar:</b> en el backtest 2020-2026 dio entre -0,2R y -1,3R por operaci&oacute;n, y la operaci&oacute;n inversa rindi&oacute; casi igual (sin ventaja). La palanca multiplica ganancias y p&eacute;rdidas.</p>
+    </details>
+  <h2 id="motor">Motor CRT autom&aacute;tico (papel)</h2>
+  <div class="stats">
+    <div class="card"><div class="label">Capital (papel)</div><div class="value" id="equity">--</div><div class="mono" id="equity-sub" style="font-size:11px"></div></div>
+    <div class="card"><div class="label">PnL realizado</div><div class="value" id="pnl">--</div></div>
+    <div class="card"><div class="label">Cerradas</div><div class="value" id="n">--</div></div>
+    <div class="card"><div class="label">Win-rate</div><div class="value" id="wr">--</div></div>
+    <div class="card"><div class="label">R medio / operaci&oacute;n</div><div class="value" id="avgr">--</div></div>
+    <div class="card"><div class="label">Abiertas</div><div class="value" id="nopen">--</div></div>
+    <div class="card"><div class="label">Precios</div><div class="mono" id="marks" style="font-size:12px;margin-top:6px"></div></div>
+  </div>
+  <div class="sub" id="cfg"></div>
+
+  <h2>Resultados por activo y marco temporal</h2>
+  <table><thead><tr><th>Grupo</th><th>Cerradas</th><th>Win-rate</th><th>PnL</th><th>R medio</th><th>R medio del backtest</th></tr></thead><tbody id="groups"></tbody></table>
+
+  <h2>Posiciones abiertas</h2>
+  <table><thead><tr><th>Abierta</th><th>Activo</th><th>TF</th><th>Lado</th><th>Entrada</th><th>Stop</th><th>Objetivo</th><th>Palanca</th><th>Liquidaci&oacute;n</th><th>Precio</th><th>PnL no realizado</th></tr></thead><tbody id="open"></tbody></table>
+
+  <h2>Cerradas (&uacute;ltimas 100)</h2>
+  <table><thead><tr><th>Cerrada</th><th>Activo</th><th>TF</th><th>Lado</th><th>Entrada</th><th>Salida</th><th>Motivo</th><th>Palanca</th><th>PnL</th><th>R</th></tr></thead><tbody id="closed"></tbody></table>
+
+  </div>
+
+  <div class="tab" id="tab-journal" hidden>
   <h2 id="journal">Diario de operaciones (manual, en demo)</h2>
   <div class="sub">Anot&aacute; cada operaci&oacute;n que hagas en demo siguiendo un m&eacute;todo (por ejemplo el de un canal). Calcula el R neto de comisiones, tu win-rate con margen de error,
     la expectativa y cu&aacute;nto win-rate necesit&aacute;s para no perder. Con 30 a 50 operaciones cerradas ya se puede empezar a distinguir un m&eacute;todo con ventaja de uno al azar. Nada de esto opera de verdad.</div>
@@ -67,34 +140,7 @@ SCALP_PAGE = """<!DOCTYPE html>
   <div class="msg" id="j-msg"></div>
   <table><thead><tr><th>#</th><th>Fecha</th><th>M&eacute;todo</th><th>Activo</th><th>TF</th><th>Lado</th><th>Entrada</th><th>Stop</th><th>Stop %</th><th>Objetivo</th><th>Ratio plan.</th><th>Salida</th><th>R neto</th><th></th></tr></thead><tbody id="j-body"></tbody></table>
 
-  <h2 id="cerebro">Cerebro de mercado (aprende solo, modo sombra)</h2>
-  <div class="banner">Un modelo de aprendizaje autom&aacute;tico aprende de las velas de 1 hora de BTC, ETH y SOL (precio, volumen, volatilidad, hora y lo que hacen los otros activos), se reentrena solo cada semana
-    y cada hora predice la probabilidad de que el precio suba en las pr&oacute;ximas 4 y 24 horas. <b>No opera ni decide nada</b>: mide en vivo, con datos que nunca vio, si acierta y si alcanza para pagar las comisiones.</div>
-  <div class="banner warn"><b>Expectativa realista:</b> en la investigaci&oacute;n (2020-2026, probando siempre sobre datos futuros al entrenamiento) el modelo predijo la direcci&oacute;n algo mejor que el azar (AUC 0,52 a 0,55; 0,5 es azar),
-    pero la ganancia bruta por operaci&oacute;n (0 a +10 puntos base) <b>no cubri&oacute; el costo</b> (14 bps con comisi&oacute;n taker). En una simulaci&oacute;n realista BTC y ETH dieron negativo todos los a&ntilde;os. Para que valga la pena, el neto tiene que ser positivo de forma sostenida con cientos de se&ntilde;ales.</div>
-  <div class="sub" id="brain-meta">Cargando...</div>
-  <table><thead><tr><th>Activo</th><th>Horizonte</th><th>P(sube) &uacute;ltima</th><th>Vela</th><th>Evaluadas</th><th>AUC en vivo</th><th>AUC investigaci&oacute;n</th><th>Acierta direcci&oacute;n</th><th>Se&ntilde;ales</th><th>Bruto (bps)</th><th>Neto taker (bps)</th><th>Neto maker (bps)</th></tr></thead><tbody id="brain-body"></tbody></table>
-
-  <h2 id="motor">Motor CRT autom&aacute;tico (papel)</h2>
-  <div class="stats">
-    <div class="card"><div class="label">Capital (papel)</div><div class="value" id="equity">--</div><div class="mono" id="equity-sub" style="font-size:11px"></div></div>
-    <div class="card"><div class="label">PnL realizado</div><div class="value" id="pnl">--</div></div>
-    <div class="card"><div class="label">Cerradas</div><div class="value" id="n">--</div></div>
-    <div class="card"><div class="label">Win-rate</div><div class="value" id="wr">--</div></div>
-    <div class="card"><div class="label">R medio / operaci&oacute;n</div><div class="value" id="avgr">--</div></div>
-    <div class="card"><div class="label">Abiertas</div><div class="value" id="nopen">--</div></div>
-    <div class="card"><div class="label">Precios</div><div class="mono" id="marks" style="font-size:12px;margin-top:6px"></div></div>
   </div>
-  <div class="sub" id="cfg"></div>
-
-  <h2>Resultados por activo y marco temporal</h2>
-  <table><thead><tr><th>Grupo</th><th>Cerradas</th><th>Win-rate</th><th>PnL</th><th>R medio</th><th>R medio del backtest</th></tr></thead><tbody id="groups"></tbody></table>
-
-  <h2>Posiciones abiertas</h2>
-  <table><thead><tr><th>Abierta</th><th>Activo</th><th>TF</th><th>Lado</th><th>Entrada</th><th>Stop</th><th>Objetivo</th><th>Palanca</th><th>Liquidaci&oacute;n</th><th>Precio</th><th>PnL no realizado</th></tr></thead><tbody id="open"></tbody></table>
-
-  <h2>Cerradas (&uacute;ltimas 100)</h2>
-  <table><thead><tr><th>Cerrada</th><th>Activo</th><th>TF</th><th>Lado</th><th>Entrada</th><th>Salida</th><th>Motivo</th><th>Palanca</th><th>PnL</th><th>R</th></tr></thead><tbody id="closed"></tbody></table>
 
 <script>
 function fmtTime(iso) {
@@ -242,6 +288,87 @@ async function loadBrain() {
 }
 loadBrain().catch(() => {}); setInterval(() => loadBrain().catch(() => {}), 60000);
 
+
+// ---------- pestanas
+function showTab(name) {
+  if (!document.getElementById("tab-" + name)) name = "resumen";
+  document.querySelectorAll(".tab").forEach(e => { e.hidden = e.id !== "tab-" + name; });
+  document.querySelectorAll(".tabbtn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  try { localStorage.setItem("cryptoTab", name); } catch (e) {}
+}
+// ---------- resumen
+function reading(n, avg) {
+  if (!n) return "Sin operaciones todavía";
+  if (n < 30) return `Muy pronto (${n} de 30 operaciones)`;
+  return avg < 0 ? "Pierde hasta ahora" : "Gana hasta ahora (falta confirmar con 100+)";
+}
+async function getJson(url) { try { return await (await fetch(url)).json(); } catch (e) { return null; } }
+function btKey(t) { return `${t.symbol} ${t.horizon}h`; }
+async function loadSummary() {
+  const [m, b, j] = await Promise.all([getJson("/api/scalp"), getJson("/api/brain_trades"), getJson("/api/journal")]);
+  const rows = [], cards = [], open = [], closed = [];
+  const card = (label, val, sub, c) => `<div class="card"><div class="label">${label}</div><div class="value ${c || ""}">${val}</div><div class="mono" style="font-size:11px;margin-top:2px">${sub || ""}</div></div>`;
+  if (b) {
+    const t = b.total;
+    cards.push(card("Cerebro (papel)", "$" + b.equity.toFixed(2), `PnL ${money(t.pnl)} &middot; inicial $${b.config.bankroll.toFixed(0)}`, cls(t.pnl)));
+    rows.push(`<tr><td><b>Cerebro</b></td><td class="mono what">Modelo que aprende de velas de 1 h; opera BTC/ETH/SOL a 4 h y 24 h, $${b.config.notional} sin palanca</td><td>${t.n}</td><td>${b.open.length}</td>
+      <td>${t.n ? (t.wins / t.n * 100).toFixed(1) + "%" : "--"}</td><td class="${cls(t.n ? t.pnl : null)}">${t.n ? money(t.pnl) : "--"}</td>
+      <td class="${cls(t.n ? t.avg_net_bps : null)}">${t.n ? bps(t.avg_net_bps) + " bps" : "--"}</td><td>${reading(t.n, t.avg_net_bps)}</td></tr>`);
+    for (const o of b.open) open.push(`<tr><td>Cerebro ${o.horizon} h</td><td>${o.symbol}</td><td class="${o.side}">${o.side === "long" ? "LARGO" : "CORTO"}</td><td>${px(o.entry)}</td><td>${px(o.mark)}</td>
+      <td class="${cls(o.unrealized_usd)}">${money(o.unrealized_usd)}</td><td class="mono">cierra ${fmtTime(new Date(o.due_candle_ms + 3600000).toISOString())}</td></tr>`);
+    for (const c of b.closed.slice(0, 30)) closed.push({ts: c.closed_at, html: `<tr><td>${fmtTime(c.closed_at)}</td><td>Cerebro ${c.horizon} h</td><td>${c.symbol}</td><td class="${c.side}">${c.side === "long" ? "LARGO" : "CORTO"}</td><td class="${cls(c.pnl_usd)}">${money(c.pnl_usd)}</td></tr>`});
+  }
+  if (m) {
+    const t = m.total;
+    cards.push(card("Motor CRT (papel)", "$" + m.equity.toFixed(2), `PnL ${money(t.pnl)} &middot; inicial $${m.config.bankroll.toFixed(0)}`, cls(t.pnl)));
+    rows.push(`<tr><td><b>Motor CRT</b></td><td class="mono what">Patrón de velas CRT en 15 m y 1 h, palanca simulada, riesgo 1% por operación</td><td>${t.n}</td><td>${m.open.length}</td>
+      <td>${t.n ? (t.wins / t.n * 100).toFixed(1) + "%" : "--"}</td><td class="${cls(t.n ? t.pnl : null)}">${t.n ? money(t.pnl) : "--"}</td>
+      <td class="${cls(t.n ? t.avg_r : null)}">${t.n ? t.avg_r.toFixed(2) + "R" : "--"}</td><td>${reading(t.n, t.avg_r)}</td></tr>`);
+    for (const o of m.open) open.push(`<tr><td>CRT ${o.tf}</td><td>${sym(o.symbol)}</td><td class="${o.side}">${o.side === "long" ? "LARGO" : "CORTO"}</td><td>${px(o.entry)}</td><td>${px(o.mark)}</td>
+      <td class="${cls(o.unrealized_usd)}">${money(o.unrealized_usd)}</td><td class="mono">stop ${px(o.stop)} / objetivo ${px(o.target)}</td></tr>`);
+    for (const c of m.closed.slice(0, 30)) closed.push({ts: c.closed_at, html: `<tr><td>${fmtTime(c.closed_at)}</td><td>CRT ${c.tf}</td><td>${sym(c.symbol)}</td><td class="${c.side}">${c.side === "long" ? "LARGO" : "CORTO"}</td><td class="${cls(c.pnl_usd)}">${money(c.pnl_usd)} (${c.r_multiple.toFixed(2)}R)</td></tr>`});
+    const marks = Object.entries(m.marks).map(([s, p]) => `${sym(s)} $${Number(p).toLocaleString("en-US", {maximumFractionDigits: 2})}`).join(" &middot; ");
+    cards.push(card("Precios", marks.split(" &middot; ").join("<br>"), ""));
+  }
+  if (j) {
+    const s = j.stats;
+    cards.push(card("Diario manual", s.n_closed ? rf(s.total_r) : "--", `${s.n_closed} cerradas &middot; ${s.n_open} abiertas`, s.n_closed ? cls(s.total_r) : ""));
+    rows.push(`<tr><td><b>Diario manual</b></td><td class="mono what">Operaciones que anotás vos en demo (por ejemplo del canal), con comisiones</td><td>${s.n_closed}</td><td>${s.n_open}</td>
+      <td>${s.n_closed ? pctf(s.wr) : "--"}</td><td class="${s.n_closed ? cls(s.total_r) : ""}">${s.n_closed ? rf(s.total_r) : "--"}</td>
+      <td class="${s.n_closed ? cls(s.expectancy_r) : ""}">${s.n_closed ? rf(s.expectancy_r) : "--"}</td><td>${reading(s.n_closed, s.n_closed ? s.expectancy_r : 0)}</td></tr>`);
+  }
+  document.getElementById("sum-cards").innerHTML = cards.join("");
+  document.getElementById("sum-body").innerHTML = rows.join("") || '<tr><td colspan="8" class="empty">Cargando...</td></tr>';
+  document.getElementById("sum-open").innerHTML = open.join("") || '<tr><td colspan="7" class="empty">Sin posiciones abiertas ahora.</td></tr>';
+  closed.sort((a, c) => (c.ts || "").localeCompare(a.ts || ""));
+  document.getElementById("sum-closed").innerHTML = closed.slice(0, 15).map(x => x.html).join("") || '<tr><td colspan="5" class="empty">Todavía no se cerró ninguna operación.</td></tr>';
+}
+// ---------- detalle del cerebro
+async function loadBrainTrades() {
+  const b = await getJson("/api/brain_trades");
+  if (!b) return;
+  const t = b.total, card = (label, val, sub, c) => `<div class="card"><div class="label">${label}</div><div class="value ${c || ""}">${val}</div><div class="mono" style="font-size:11px;margin-top:2px">${sub || ""}</div></div>`;
+  document.getElementById("bt-cards").innerHTML =
+    card("Capital (papel)", "$" + b.equity.toFixed(2), `inicial $${b.config.bankroll.toFixed(0)} &middot; $${b.config.notional} por operación`, cls(t.pnl)) +
+    card("PnL realizado", money(t.pnl), "", cls(t.pnl)) + card("Cerradas", t.n, `${b.open.length} abiertas`) +
+    card("Win-rate", t.n ? (t.wins / t.n * 100).toFixed(1) + "%" : "--", "") +
+    card("Neto medio", t.n ? bps(t.avg_net_bps) + " bps" : "--", t.n ? `bruto ${bps(t.avg_gross_bps)} bps` : "", t.n ? cls(t.avg_net_bps) : "");
+  let g = "";
+  for (const [name, x] of Object.entries(b.by_key)) g += `<tr><td>${name}</td><td>${x.n}</td><td>${x.n ? (x.wins / x.n * 100).toFixed(1) + "%" : "--"}</td><td class="${cls(x.n ? x.pnl : null)}">${x.n ? money(x.pnl) : "--"}</td><td>${x.n ? bps(x.avg_gross_bps) : "--"}</td><td class="${cls(x.n ? x.avg_net_bps : null)}">${x.n ? bps(x.avg_net_bps) : "--"}</td></tr>`;
+  document.getElementById("bt-groups").innerHTML = g;
+  const ob = document.getElementById("bt-open");
+  ob.innerHTML = b.open.length ? "" : '<tr><td colspan="9" class="empty">Sin posiciones abiertas: espera una señal fuerte en la próxima hora en punto.</td></tr>';
+  for (const o of b.open) ob.insertAdjacentHTML("beforeend", `<tr><td>${fmtTime(o.opened_at)}</td><td>${o.symbol}</td><td>${o.horizon} h</td><td class="${o.side}">${o.side === "long" ? "LARGO" : "CORTO"}</td><td>${fmtP(o.p_up)}</td><td>${px(o.entry)}</td><td>${px(o.mark)}</td><td class="${cls(o.unrealized_usd)}">${money(o.unrealized_usd)}</td><td class="mono">${fmtTime(new Date(o.due_candle_ms + 3600000).toISOString())}</td></tr>`);
+  const cb = document.getElementById("bt-closed");
+  cb.innerHTML = b.closed.length ? "" : '<tr><td colspan="8" class="empty">Todavía no se cerró ninguna operación (la primera cierra 4 horas después de abrirse).</td></tr>';
+  for (const c of b.closed) cb.insertAdjacentHTML("beforeend", `<tr><td>${fmtTime(c.closed_at)}</td><td>${c.symbol}</td><td>${c.horizon} h</td><td class="${c.side}">${c.side === "long" ? "LARGO" : "CORTO"}</td><td>${px(c.entry)}</td><td>${px(c.exit_price)}</td><td class="${cls(c.gross_ret)}">${(c.gross_ret * 100).toFixed(2)}%</td><td class="${cls(c.pnl_usd)}">${money(c.pnl_usd)}</td></tr>`);
+}
+let initial = "resumen";
+try { initial = localStorage.getItem("cryptoTab") || "resumen"; } catch (e) {}
+if (location.hash && document.getElementById("tab-" + location.hash.slice(1))) initial = location.hash.slice(1);
+showTab(initial);
+loadSummary(); setInterval(loadSummary, 10000);
+loadBrainTrades(); setInterval(loadBrainTrades, 10000);
 </script>
 </body>
 </html>

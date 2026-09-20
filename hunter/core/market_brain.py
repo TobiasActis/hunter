@@ -39,6 +39,13 @@ SIGNAL_THRESHOLD = 0.05                      # |p - 0.5| minimo para contar una 
 DATA_DIR = os.path.dirname(os.path.abspath(SCALP_DB))
 POLL_SECONDS = 60
 
+# Trading EN PAPEL con las senales del cerebro (nunca real): una posicion por (activo, horizonte) a la vez, sin palanca.
+TRADE_NOTIONAL = 100.0
+TRADE_THRESHOLD = 0.05           # |p - 0.5| minimo para abrir
+TRADE_FEE_SIDE = 0.0007          # 0.05% comision taker + 0.02% slippage por lado
+TRADE_BANKROLL = 1000.0
+FRESH_MS = 5 * 60_000            # solo se abre si la vela cerro hace menos de 5 min (evita entradas con precio viejo tras un reinicio)
+
 # Referencia de la investigacion (AUC walk-forward fuera de muestra, 1 h): para comparar con lo que se mide en vivo
 RESEARCH_AUC = {("BTC", 4): 0.5465, ("BTC", 24): 0.5188, ("ETH", 4): 0.5396, ("ETH", 24): 0.5193, ("SOL", 4): 0.5194, ("SOL", 24): 0.5223}
 
@@ -51,6 +58,14 @@ CREATE TABLE IF NOT EXISTS brain_predictions (
     UNIQUE(symbol, horizon, candle_ms)
 );
 CREATE TABLE IF NOT EXISTS brain_state (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS brain_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL, horizon INTEGER NOT NULL, side TEXT NOT NULL,              -- 'long' | 'short'
+    signal_candle_ms INTEGER NOT NULL, due_candle_ms INTEGER NOT NULL, p_up REAL NOT NULL,
+    entry REAL NOT NULL, notional REAL NOT NULL, opened_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open', exit_price REAL, closed_at TEXT, gross_ret REAL, pnl_usd REAL,
+    UNIQUE(symbol, horizon, signal_candle_ms)
+);
 """
 
 
@@ -238,6 +253,73 @@ def get_snapshot() -> dict:
             "retrain_days": RETRAIN_DAYS, "threshold": SIGNAL_THRESHOLD, "cost_taker_bps": COST_TAKER * 1e4, "cost_maker_bps": COST_MAKER * 1e4}
 
 
+# ------------------------------------------------------------------ trading en papel con las senales del cerebro
+def open_brain_trades(preds, raw: dict, now_ms: int) -> int:
+    """Abre posiciones de PAPEL con las predicciones de la vela recien cerrada: entrada = cierre de esa vela (~ apertura siguiente),
+    salida = cierre de la vela H horas despues (mismo esquema que la investigacion). Una posicion abierta por (activo, horizonte)."""
+    n = 0
+    with conn_ctx() as c:
+        for sym, H, ms, p in preds:
+            if abs(p - 0.5) < TRADE_THRESHOLD:
+                continue
+            if now_ms - (ms + BAR_MS) > FRESH_MS:
+                continue                                    # vela vieja: el precio de entrada ya no seria real
+            df = raw[sym]
+            if ms not in df.index:
+                continue
+            if c.execute("SELECT 1 FROM brain_trades WHERE symbol=? AND horizon=? AND status='open'", (sym, H)).fetchone():
+                continue
+            cur = c.execute(
+                """INSERT OR IGNORE INTO brain_trades (symbol, horizon, side, signal_candle_ms, due_candle_ms, p_up, entry, notional, opened_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (sym, H, "long" if p > 0.5 else "short", ms, ms + H * BAR_MS, p, float(df.c[ms]), TRADE_NOTIONAL, now_iso()))
+            n += cur.rowcount
+    return n
+
+
+def close_due_trades(raw: dict) -> int:
+    n = 0
+    with conn_ctx() as c:
+        for r in c.execute("SELECT * FROM brain_trades WHERE status='open'").fetchall():
+            df = raw[r["symbol"]]
+            if r["due_candle_ms"] not in df.index:
+                continue
+            exit_price = float(df.c[r["due_candle_ms"]])
+            gross = (exit_price / r["entry"] - 1.0) * (1 if r["side"] == "long" else -1)
+            pnl = r["notional"] * gross - 2 * TRADE_FEE_SIDE * r["notional"]
+            c.execute("UPDATE brain_trades SET status='closed', exit_price=?, closed_at=?, gross_ret=?, pnl_usd=? WHERE id=?",
+                      (exit_price, now_iso(), gross, pnl, r["id"]))
+            n += 1
+    return n
+
+
+def get_trades_snapshot() -> dict:
+    init_db()
+    with conn_ctx() as c:
+        marks = {r["symbol"]: r["price"] for r in c.execute("SELECT symbol, price FROM scalp_marks")} if c.execute(
+            "SELECT name FROM sqlite_master WHERE name='scalp_marks'").fetchone() else {}
+        pnl_sum = c.execute("SELECT COALESCE(SUM(pnl_usd),0) s FROM brain_trades WHERE status='closed'").fetchone()["s"]
+
+        def stats(where="", args=()):
+            r = c.execute(f"""SELECT COUNT(*) n, COALESCE(SUM(pnl_usd>0),0) w, COALESCE(SUM(pnl_usd),0) pnl,
+                              COALESCE(AVG(pnl_usd/notional),0) avg_ret, COALESCE(AVG(gross_ret),0) avg_gross
+                              FROM brain_trades WHERE status='closed' {where}""", args).fetchone()
+            return {"n": r["n"], "wins": r["w"], "pnl": r["pnl"], "avg_net_bps": r["avg_ret"] * 1e4, "avg_gross_bps": r["avg_gross"] * 1e4}
+        by_key = {f"{s} {H}h": stats("AND symbol=? AND horizon=?", (s, H)) for s in SYMBOLS for H in HORIZONS}
+        open_rows = []
+        for r in c.execute("SELECT * FROM brain_trades WHERE status='open' ORDER BY id DESC"):
+            d = dict(r)
+            m = marks.get(f"{r['symbol']}USDT")
+            d["mark"] = m
+            if m:
+                g = (m / r["entry"] - 1.0) * (1 if r["side"] == "long" else -1)
+                d["unrealized_usd"] = r["notional"] * g - 2 * TRADE_FEE_SIDE * r["notional"]
+            open_rows.append(d)
+        closed = [dict(r) for r in c.execute("SELECT * FROM brain_trades WHERE status='closed' ORDER BY id DESC LIMIT 100")]
+        return {"config": {"notional": TRADE_NOTIONAL, "threshold": TRADE_THRESHOLD, "fee_side_pct": TRADE_FEE_SIDE * 100, "bankroll": TRADE_BANKROLL},
+                "equity": TRADE_BANKROLL + pnl_sum, "total": stats(), "by_key": by_key, "open": open_rows, "closed": closed}
+
+
 # ------------------------------------------------------------------ bucle principal
 def _set_state(k, v):
     with conn_ctx() as c:
@@ -298,7 +380,13 @@ async def run():
                     if newest > last_pred_ms:
                         preds = await asyncio.to_thread(predict_last, models, raw, 1)
                         log_predictions(preds, _get_state("trained_at"))
+                        opened = open_brain_trades(preds, raw, int(time.time() * 1000))
+                        if opened:
+                            logger.info(f"Cerebro (PAPEL): {opened} posiciones abiertas con las senales de la hora")
                         last_pred_ms = newest
+                    closed_n = close_due_trades(raw)
+                    if closed_n:
+                        logger.info(f"Cerebro (PAPEL): {closed_n} posiciones cerradas por horizonte cumplido")
                     n = score_predictions(raw)
                     if n:
                         logger.info(f"Cerebro: {n} predicciones evaluadas con el resultado real")
