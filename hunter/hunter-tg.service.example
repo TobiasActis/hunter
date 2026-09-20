@@ -1,0 +1,21 @@
+# Servicio para dejar corriendo el oyente de alertas de Telegram (SOLO lee @kotte_memescan_bot). Instalar DESPUES de hacer el login una vez (tg_alerts.py --login).
+#   sudo cp hunter-tg.service.example /etc/systemd/system/hunter-tg.service && sudo systemctl daemon-reload && sudo systemctl enable --now hunter-tg
+# Las claves van en ~/hunter/.tg_env (chmod 600), NUNCA en este archivo ni en un chat:
+#   TG_API_ID=...            (my.telegram.org -> API development tools)
+#   TG_API_HASH=...
+#   HUNTER_USER=...          (el usuario del dashboard, el mismo de .env)
+#   HUNTER_PASSWORD=...
+[Unit]
+Description=HUNTER - oyente de alertas de Telegram (solo lectura)
+After=network-online.target hunter.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hunter
+EnvironmentFile=/home/ubuntu/hunter/.tg_env
+ExecStart=/home/ubuntu/hunter/venv/bin/python tg_alerts.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

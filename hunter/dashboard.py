@@ -802,6 +802,14 @@ def api_sg():
     return Response(content=json.dumps(get_snapshot(), default=str).encode("utf-8"), media_type="application/json")
 
 
+@app.post("/api/sg/bot")
+def api_sg_bot(body: dict):
+    # Alerta real del bot de Telegram, enviada por el oyente tg_alerts.py (mismo servidor o tu PC, con la clave del dashboard).
+    from core.slowgrad import add_bot_alert
+    ok, why = add_bot_alert(str(body.get("mint", "")), int(body.get("ts_ms") or 0), body.get("hours"), body.get("symbol"))
+    return {"agregada": ok, "motivo": why}
+
+
 @app.post("/api/sg/manual")
 def api_sg_manual(body: dict):
     # CAs de alertas reales del bot de Telegram pegados a mano: se simulan al precio actual.

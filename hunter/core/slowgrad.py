@@ -10,6 +10,8 @@ Variantes:
   SG6     graduo >= 6 h despues de la creacion (nuestra hora de creacion conocida). Es la senal del bot.
   SGOLD   graduo pero nunca vimos su creacion (token anterior al rastreador, o sea mas viejo que ~5 dias): el escalon "muy lento" ("Took 51d+").
   SGCTL   CONTROL: graduo en menos de 1 h (la mayoria, ~20 min); se muestrea 1 de cada 8 para no gastar llamadas.
+  BOT     alertas REALES del bot recibidas por el oyente tg_alerts.py (lee solo a @kotte_memescan_bot en la cuenta de Telegram del dueno): entrada al primer precio tras recibirla; se descartan alertas de hace
+          mas de 5 min (si el oyente estuvo caido, simular ahora no reflejaria la alerta). El retraso de entrada se mide contra la HORA DEL MENSAJE de Telegram.
   MANUAL  CAs de alertas reales del bot que pegas en el dashboard: se simulan al precio del momento en que las pegas.
 Reglas de entrada (iguales para todas): se busca el par en DexScreener cada ~10 s hasta 5 min; entrada al primer precio disponible (se mide el retraso contra la graduacion); se rechaza si la reserva real de SOL del pool < 10 SOL
 (USDC < $1000). Tamano fijo $100.
@@ -53,6 +55,7 @@ VARIANTS = {
     "SG6": "Graduacion lenta (>= 6 h): la senal del bot",
     "SGOLD": "Graduacion muy lenta (token anterior a nuestros datos)",
     "SGCTL": "Control: graduacion rapida (< 1 h)",
+    "BOT": "Alertas reales del bot (automaticas)",
     "MANUAL": "Alertas del bot que pegas vos",
 }
 B58 = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
@@ -189,6 +192,23 @@ def add_manual(mints):
             cur = c.execute("INSERT OR IGNORE INTO sg_signals (variant, mint, source, hours_to_grad, signal_ms, status) VALUES ('MANUAL', ?, 'manual', NULL, ?, 'pending')", (m, now_ms))
             n += cur.rowcount
     return n
+
+
+BOT_MAX_AGE_S = 300
+
+
+def add_bot_alert(mint, ts_ms, hours=None, symbol=None):
+    """Alerta real del bot recibida por el oyente. Devuelve (agregada, motivo). Se descartan las de hace mas de 5 min."""
+    init_db()
+    if not B58.fullmatch(mint or ""):
+        return False, "CA invalido"
+    now_ms = int(time.time() * 1000)
+    if not ts_ms or now_ms - int(ts_ms) > BOT_MAX_AGE_S * 1000:
+        return False, "alerta vieja (mas de 5 min)"
+    with conn_ctx() as c:
+        cur = c.execute("INSERT OR IGNORE INTO sg_signals (variant, mint, source, hours_to_grad, signal_ms, status, symbol) VALUES ('BOT', ?, 'telegram', ?, ?, 'pending', ?)",
+                        (mint, hours, int(ts_ms), symbol))
+        return (cur.rowcount == 1), ("ya estaba" if cur.rowcount == 0 else "ok")
 
 
 def detect_graduations(now_ms):
