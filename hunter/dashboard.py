@@ -774,6 +774,13 @@ async def scalping_page():
     return SCALP_PAGE
 
 
+@app.get("/api/brain")
+def api_brain():
+    # Cerebro de mercado en modo sombra (core/market_brain.py): estadisticas en vivo por activo y horizonte.
+    from core.market_brain import get_snapshot
+    return Response(content=json.dumps(get_snapshot(), default=str).encode("utf-8"), media_type="application/json")
+
+
 @app.get("/api/journal")
 def api_journal():
     # Diario de operaciones manuales en demo (core/journal.py): lista + estadisticas.

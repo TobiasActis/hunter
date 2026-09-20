@@ -42,7 +42,7 @@ SCALP_PAGE = """<!DOCTYPE html>
   <div class="banner warn"><b>Ojo:</b> en el backtest hist&oacute;rico (2020-2026, BTC/ETH/SOL, con comisiones) este m&eacute;todo dio <b>entre -0,2R y -1,3R por operaci&oacute;n</b> y la operaci&oacute;n inversa rindi&oacute; casi igual:
     no mostr&oacute; ventaja. Esta pantalla sirve para medirlo en vivo con datos nuevos, no porque se sepa que funciona. La palanca multiplica ganancias y p&eacute;rdidas.</div>
 
-  <div class="sub"><a href="#journal">Diario de operaciones (manual, demo)</a> &middot; <a href="#motor">Motor CRT autom&aacute;tico (papel)</a></div>
+  <div class="sub"><a href="#journal">Diario de operaciones (manual, demo)</a> &middot; <a href="#cerebro">Cerebro de mercado (aprende solo)</a> &middot; <a href="#motor">Motor CRT autom&aacute;tico (papel)</a></div>
 
   <h2 id="journal">Diario de operaciones (manual, en demo)</h2>
   <div class="sub">Anot&aacute; cada operaci&oacute;n que hagas en demo siguiendo un m&eacute;todo (por ejemplo el de un canal). Calcula el R neto de comisiones, tu win-rate con margen de error,
@@ -66,6 +66,14 @@ SCALP_PAGE = """<!DOCTYPE html>
   </form>
   <div class="msg" id="j-msg"></div>
   <table><thead><tr><th>#</th><th>Fecha</th><th>M&eacute;todo</th><th>Activo</th><th>TF</th><th>Lado</th><th>Entrada</th><th>Stop</th><th>Stop %</th><th>Objetivo</th><th>Ratio plan.</th><th>Salida</th><th>R neto</th><th></th></tr></thead><tbody id="j-body"></tbody></table>
+
+  <h2 id="cerebro">Cerebro de mercado (aprende solo, modo sombra)</h2>
+  <div class="banner">Un modelo de aprendizaje autom&aacute;tico aprende de las velas de 1 hora de BTC, ETH y SOL (precio, volumen, volatilidad, hora y lo que hacen los otros activos), se reentrena solo cada semana
+    y cada hora predice la probabilidad de que el precio suba en las pr&oacute;ximas 4 y 24 horas. <b>No opera ni decide nada</b>: mide en vivo, con datos que nunca vio, si acierta y si alcanza para pagar las comisiones.</div>
+  <div class="banner warn"><b>Expectativa realista:</b> en la investigaci&oacute;n (2020-2026, probando siempre sobre datos futuros al entrenamiento) el modelo predijo la direcci&oacute;n algo mejor que el azar (AUC 0,52 a 0,55; 0,5 es azar),
+    pero la ganancia bruta por operaci&oacute;n (0 a +10 puntos base) <b>no cubri&oacute; el costo</b> (14 bps con comisi&oacute;n taker). En una simulaci&oacute;n realista BTC y ETH dieron negativo todos los a&ntilde;os. Para que valga la pena, el neto tiene que ser positivo de forma sostenida con cientos de se&ntilde;ales.</div>
+  <div class="sub" id="brain-meta">Cargando...</div>
+  <table><thead><tr><th>Activo</th><th>Horizonte</th><th>P(sube) &uacute;ltima</th><th>Vela</th><th>Evaluadas</th><th>AUC en vivo</th><th>AUC investigaci&oacute;n</th><th>Acierta direcci&oacute;n</th><th>Se&ntilde;ales</th><th>Bruto (bps)</th><th>Neto taker (bps)</th><th>Neto maker (bps)</th></tr></thead><tbody id="brain-body"></tbody></table>
 
   <h2 id="motor">Motor CRT autom&aacute;tico (papel)</h2>
   <div class="stats">
@@ -215,6 +223,24 @@ async function deleteTrade(id) {
 }
 refresh(); setInterval(() => refresh().catch(() => {}), 5000);
 loadJournal().catch(() => {});
+const fmtP = p => (p === null || p === undefined) ? "--" : (p * 100).toFixed(1) + "%";
+const bps = x => (x === null || x === undefined) ? "--" : (x >= 0 ? "+" : "") + x.toFixed(1);
+async function loadBrain() {
+  const d = await (await fetch("/api/brain")).json();
+  document.getElementById("brain-meta").textContent = d.trained_at
+    ? `Último entrenamiento: ${fmtTime(d.trained_at)} con ${d.n_train_rows} velas de 1 h; se reentrena solo cada ${d.retrain_days} días. Costo asumido: ${d.cost_taker_bps.toFixed(0)} bps (taker) / ${d.cost_maker_bps.toFixed(0)} bps (maker) ida y vuelta. Señal = probabilidad a más de ${(d.threshold * 100).toFixed(0)} puntos de 50%.`
+    : "El cerebro todavía está descargando el historial y entrenando la primera vez (unos minutos).";
+  const b = document.getElementById("brain-body");
+  b.innerHTML = "";
+  for (const r of d.rows) {
+    const pcol = r.last_p === null || r.last_p === undefined ? "" : (r.last_p >= 0.55 ? "pos" : (r.last_p <= 0.45 ? "neg" : ""));
+    b.insertAdjacentHTML("beforeend", `<tr><td>${r.symbol}</td><td>${r.horizon} h</td><td class="${pcol}">${fmtP(r.last_p)}</td><td class="mono">${r.last_candle_ms ? fmtTime(new Date(r.last_candle_ms).toISOString()) : "--"}</td>
+      <td>${r.n_scored}</td><td>${r.auc === undefined || r.auc === null ? "--" : r.auc.toFixed(3)}</td><td class="mono">${r.research_auc === null || r.research_auc === undefined ? "--" : r.research_auc.toFixed(3)}</td>
+      <td>${r.dir_acc === undefined ? "--" : fmtP(r.dir_acc)}</td><td>${r.n_signals === undefined ? "--" : r.n_signals}</td>
+      <td>${bps(r.gross_bps)}</td><td class="${cls(r.net_taker_bps)}">${bps(r.net_taker_bps)}</td><td class="${cls(r.net_maker_bps)}">${bps(r.net_maker_bps)}</td></tr>`);
+  }
+}
+loadBrain().catch(() => {}); setInterval(() => loadBrain().catch(() => {}), 60000);
 
 </script>
 </body>
