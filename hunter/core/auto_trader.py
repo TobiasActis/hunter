@@ -280,7 +280,7 @@ async def _close_stale_position(position) -> None:
     else:
         logger.info(
             f"Auto-trader: posición #{position['id']} cerrada automáticamente "
-            f"tras 1h (red de seguridad) -- multiplicador {result['multiplier']:.2f}x, "
+            f"tras {HOLD_SECONDS // 60} min (red de seguridad) -- multiplicador {result['multiplier']:.2f}x, "
             f"PnL neto del tramo final ${result['pnl_usd']:+.2f}"
         )
 
