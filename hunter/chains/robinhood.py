@@ -51,6 +51,23 @@ from core.eth_price import get_cached_eth_usd
 logger = logging.getLogger("hunter.robinhood")
 
 PONS_FACTORY = "0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e"
+ZERO_ADDRESS = "0x" + "0" * 40
+
+
+def launch_quote_token(log: dict) -> Optional[str]:
+    """Activo de COTIZACION de la curva segun el evento TokenLaunched: primera palabra de los datos (address).
+    ZERO_ADDRESS = ETH nativo. Verificado en cadena el 2026-09-20 con 56.465 lanzamientos: ~80% cotizan en ETH y ~20% en otros
+    ERC20 (mas de 10 activos distintos). El listener asumia ETH para todos (quote_raw / 1e18): en las curvas con otro activo
+    los montos y precios salian en 'ETH' inventados (una venta de $364 millones eran 139.241 unidades de un ERC20 que valian ~0.65 ETH)."""
+    data = (log.get("data") or "")[2:]
+    if len(data) < 64:
+        return None
+    return "0x" + data[24:64].lower()
+
+
+def is_eth_quoted(quote_token: Optional[str]) -> bool:
+    """True si la curva cotiza en ETH. Si el evento no trae el dato (None) se asume ETH, como antes del arreglo."""
+    return quote_token is None or quote_token == ZERO_ADDRESS
 TOKEN_LAUNCHED_TOPIC = "0x8d4aad4953d0ca700d468f3753aa14432d1b35b43ec6409f051fb6aa43a89607"
 CURVE_BUY_TOPIC = "0xec36bf571f136799e8dc0b0b8bea4b04d8bd3d43de838aab0d5fc21d4cbfc455"
 CURVE_SELL_TOPIC = "0x8113d738abdcb6b38357e9d53a54a7157861a09031b453651f0fe7fe151f59df"
@@ -103,6 +120,7 @@ class RobinhoodListener(ChainListener):
         self._token_decimals: dict[str, int] = {}
         self._last_block: Optional[int] = None
         self._backoff_until = 0.0
+        self._skipped_non_eth = 0
 
     async def listen(self, wallets: list[str]) -> AsyncIterator[SwapEvent]:
         async with httpx.AsyncClient() as client:
@@ -228,11 +246,20 @@ class RobinhoodListener(ChainListener):
             # no pasaría si fuera un valor por-token). Es el creador/
             # deployer, no el token ni la curva.
             creator = "0x" + log["topics"][3][-40:] if len(log["topics"]) > 3 else None
-            self._curve_to_token[curve.lower()] = token.lower()
-            self._token_decimals[token.lower()] = await self._fetch_decimals(client, token)
+            quote = launch_quote_token(log)
+            eth_quoted = is_eth_quoted(quote)
+            if eth_quoted:
+                self._curve_to_token[curve.lower()] = token.lower()
+                self._token_decimals[token.lower()] = await self._fetch_decimals(client, token)
+            else:
+                # Curva cotizada en otro ERC20: sus montos/precios NO estan en ETH y el simulador no puede comprarla con ETH.
+                # No se registra la curva, asi que sus trades se descartan en _parse_trade_log (curva desconocida).
+                self._skipped_non_eth += 1
+                if self._skipped_non_eth % 100 == 1:
+                    logger.info(f"Curvas que no cotizan en ETH ignoradas: {self._skipped_non_eth} (ultima: {token.lower()} cotiza en {quote})")
             created_iso = await self._get_block_timestamp_iso(client, log)
             with get_conn() as conn:
-                upsert_token_created(conn, self.name, token.lower(), created_iso, creator=creator.lower() if creator else None)
+                upsert_token_created(conn, self.name, token.lower(), created_iso, creator=creator.lower() if creator else None, quote_token=quote)
 
         # 2. Graduaciones (bonding curve -> pool líquido) -- para medir
         # "tiempo hasta graduación" con datos propios, no ajenos.

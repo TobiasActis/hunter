@@ -237,6 +237,7 @@ def _migrate(conn):
         "ALTER TABLE stampede_alerts ADD COLUMN avg_wallet_buy_usd REAL",
         "ALTER TABLE stampede_alerts ADD COLUMN min_wallet_buy_usd REAL",
         "ALTER TABLE tokens ADD COLUMN creator TEXT",
+        "ALTER TABLE tokens ADD COLUMN quote_token TEXT",
         "ALTER TABLE stampede_alerts ADD COLUMN creator_tokens_created INTEGER",
         "ALTER TABLE stampede_alerts ADD COLUMN creator_migration_rate REAL",
         "ALTER TABLE stampede_alerts ADD COLUMN early_buy_concentration REAL",
@@ -500,18 +501,21 @@ def get_wallet_prior_trade_count(conn, chain: str, wallet: str, before_iso: str)
     return row["c"]
 
 
-def upsert_token_created(conn, chain: str, token_address: str, created_at: str, creator: str | None = None):
+def upsert_token_created(conn, chain: str, token_address: str, created_at: str, creator: str | None = None, quote_token: str | None = None):
     """Registra cuándo se creó un token -- solo la PRIMERA vez que lo vemos
     (COALESCE preserva el valor existente si ya lo habíamos registrado).
     `creator` (2026-09-17): wallet que deployó el token -- ver comentario
-    en SCHEMA sobre por qué importa (historial del dev, no del comprador)."""
+    en SCHEMA sobre por qué importa (historial del dev, no del comprador).
+    `quote_token` (2026-09-20): activo en el que cotiza la curva segun el evento TokenLaunched ('0x000...0' = ETH
+    nativo; cualquier otra direccion = un token ERC20). Robinhood Chain: ~20% de los lanzamientos NO cotizan en ETH."""
     conn.execute(
-        """INSERT INTO tokens (chain, token_address, created_at, creator)
-           VALUES (?, ?, ?, ?)
+        """INSERT INTO tokens (chain, token_address, created_at, creator, quote_token)
+           VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(chain, token_address) DO UPDATE SET
              created_at = COALESCE(tokens.created_at, excluded.created_at),
-             creator = COALESCE(tokens.creator, excluded.creator)""",
-        (chain, token_address, created_at, creator),
+             creator = COALESCE(tokens.creator, excluded.creator),
+             quote_token = COALESCE(tokens.quote_token, excluded.quote_token)""",
+        (chain, token_address, created_at, creator, quote_token),
     )
 
 
