@@ -25,7 +25,7 @@ def setting(key):
     return r["value"] if r else None
 
 
-since = (sys.argv[1] + "T00:00:00") if len(sys.argv) > 1 else (setting("sim_v3_since") or setting("sim_v2_since") or "2026-09-18T22:37:45")
+since = (sys.argv[1] + "T00:00:00") if len(sys.argv) > 1 else (setting("sim_v4_since") or setting("sim_v3_since") or setting("sim_v2_since") or "2026-09-18T22:37:45")
 print(f"Revisión desde {since} (UTC)\n")
 
 bad = {r[0] for r in conn.execute(
@@ -201,8 +201,10 @@ if len(cap) >= 15:
 # DISTINTOS ya vendieron tras nuestra entrada mejoró ~+$1.5/trade (IC95% [+0.1, +2.9], k=2-4,
 # ambas mitades del período). Control: vale igual con wallets ajenas a la alerta, o sea NO es
 # una señal de "wallets buenas". NO está en producción: acá se mide cada noche sobre posiciones
-# nuevas. Regla decidida de antemano: adoptar k=3 si con >=300 posiciones nuevas el IC95% del
-# cambio por trade excluye 0 y ambas mitades son positivas.
+# nuevas. ADOPTADA el 2026-09-20 como v4 (SELL_PRESSURE_EXIT_K=3, con 159 posiciones posteriores
+# a la regla: +$4.2/trade, IC95% [+1.4,+6.8]). Desde v4 esta sección muestra lo que HUBIERA dado
+# ademas de lo que ya opera el sistema: debe dar ~0 (ya esta aplicada); si sigue dando positivo,
+# la salida en vivo llega mas tarde que la del backtest.
 print("\n", "=" * 72, "\n6) CONTRAFACTUAL: SALIR AL VENDER K COMPRADORES DISTINTOS (no operado)\n", "=" * 72, sep="")
 try:
     from replay import load_positions, simulate, kth_distinct_seller_time

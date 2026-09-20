@@ -71,10 +71,11 @@ from datetime import datetime, timedelta, timezone
 
 from core.db import (
     get_conn, get_open_paper_positions, get_triggered_exit_reasons,
-    has_recent_or_open_position, get_paper_position, update_peak_price,
+    has_recent_or_open_position, get_paper_position, update_peak_price, count_distinct_sellers_since,
 )
 from core.paper_trading import open_position, sell_partial, close_position, DEFAULT_POSITION_USD
 from core.token_price import fetch_current_price
+from config.settings import SELL_PRESSURE_EXIT_K
 
 logger = logging.getLogger("hunter.auto_trader")
 
@@ -104,6 +105,7 @@ TRAILING_STOP_PCT = 0.30  # vender el resto si cae 30% desde el máximo alcanzad
                            # -- punto de partida razonable para la volatilidad de
                            # memecoins, no un número optimizado con datos todavía.
 TRAILING_STOP_REASON = "trailing_stop"
+SELL_PRESSURE_REASON = "sell_pressure"  # ver SELL_PRESSURE_EXIT_K en config/settings.py
 
 
 _in_flight: set = set()
@@ -150,6 +152,28 @@ async def _manage_open_position(position) -> None:
     current_price = await fetch_current_price(position["chain"], position["token_address"])
     if current_price is None or not position["entry_price"]:
         return
+
+    # Salida por presión de venta (v4, 2026-09-20): si ya vendieron K compradores
+    # distintos desde nuestro llenado, se vende todo lo que quede -- ver el
+    # razonamiento y los números en config/settings.py::SELL_PRESSURE_EXIT_K.
+    if SELL_PRESSURE_EXIT_K > 0 and position["opened_at"]:
+        with get_conn() as conn:
+            sellers = count_distinct_sellers_since(
+                conn, position["chain"], position["token_address"], position["opened_at"])
+            if sellers >= SELL_PRESSURE_EXIT_K:
+                current = get_paper_position(conn, position["id"])
+        if sellers >= SELL_PRESSURE_EXIT_K:
+            if current is None or current["status"] != "open" or (current["remaining_fraction"] or 0) <= 1e-9:
+                return
+            result = await sell_partial(position["id"], current["remaining_fraction"], SELL_PRESSURE_REASON,
+                                        exit_price=current_price, latency=True)
+            if result:
+                logger.info(
+                    f"Auto-trader: SALIDA POR PRESIÓN DE VENTA en posición #{position['id']} -- "
+                    f"{sellers} compradores distintos ya vendieron ({mult_now:.2f}x), "
+                    f"vendido lo que quedaba, PnL ${result['pnl_usd']:+.2f}"
+                )
+            return
 
     # Camino rápido: revisando cada pocos segundos, la mayoría de las
     # posiciones no tiene nada que hacer -- sin tocar la base salvo que el

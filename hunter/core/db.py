@@ -623,6 +623,17 @@ def update_peak_price(conn, position_id: int, current_price: float):
     )
 
 
+def count_distinct_sellers_since(conn, chain: str, token_address: str, since_iso: str) -> int:
+    """Compradores DISTINTOS que ya vendieron este token desde `since_iso` (llenado de nuestra
+    posicion). Base de la salida por presion de venta (SELL_PRESSURE_EXIT_K)."""
+    row = conn.execute(
+        """SELECT COUNT(DISTINCT wallet) AS n FROM transactions
+           WHERE chain = ? AND token_address = ? AND side = 'sell' AND detected_at >= ?""",
+        (chain, token_address, since_iso),
+    ).fetchone()
+    return row["n"] or 0
+
+
 def get_triggered_exit_reasons(conn, position_id: int) -> set:
     """Qué niveles de toma de ganancias (o el cierre final) ya se
     ejecutaron para esta posición -- evita que el auto-trader dispare

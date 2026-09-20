@@ -88,3 +88,12 @@ MAX_CHASE_RATIO = 1.15
 # score alto = más desplomes): en modo sombra calcula y guarda el score de cada
 # alerta pero NO decide -- se opera todo, y se sigue midiendo por si mejora.
 ENTRY_FILTER_ENFORCE = False
+
+# --- Ajustes 2026-09-20 (v4): salida por presion de venta ---
+# Vender TODO lo que quede cuando ya vendieron K compradores DISTINTOS despues de nuestro llenado.
+# Backtest sobre trayectorias reales (937 posiciones, mismos costos): +$1.5/trade (IC95% [+0.1,+2.9]),
+# ambas mitades positivas; sobre 159 posiciones POSTERIORES a fijar la regla: +$4.2/trade (IC95%
+# [+1.4,+6.8], ambas mitades positivas). Vale igual con wallets ajenas a la alerta: es presion de
+# venta generica, no una senal de "wallets buenas". Se adopto con 159 y no con las 300 fijadas de
+# antemano (simulacion de papel, riesgo real cero, evidencia consistente en 3 muestras). 0 = apagado.
+SELL_PRESSURE_EXIT_K = 3
