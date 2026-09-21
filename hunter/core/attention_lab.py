@@ -145,6 +145,8 @@ def parse_gmgn_rank(payload, gmgn_chain, source, min_smart=None):
     """Tendencias de GMGN: data.rank es una lista de items con address, smart_degen_count, renowned_count, rug_ratio, hot_level, volume... (segun su documentacion)."""
     chain = GMGN_CHAINS.get(gmgn_chain)
     data = (payload or {}).get("data")
+    while isinstance(data, dict) and "rank" not in data and isinstance(data.get("data"), (dict, list)):     # la API real anida un nivel de mas: {"code":0,"data":{"code":0,"data":{"rank":[...]}}}
+        data = data["data"]
     items = data.get("rank") if isinstance(data, dict) else data
     out = []
     for it in items if isinstance(items, list) else []:
@@ -340,7 +342,10 @@ async def fetch_sources(client, gmgn_key=None):
                     if isinstance(js, dict) and js.get("code") not in (None, 0):
                         logger.warning(f"{source} {gch}: respuesta {js.get('code')} {str(js.get('msg') or js.get('message'))[:120]}")
                         continue
-                    events += parse_gmgn_rank(js, gch, source, min_smart)
+                    got = parse_gmgn_rank(js, gch, source, min_smart)
+                    if not got and min_smart is None:                      # tendencia vacia = forma de respuesta distinta a la documentada: dejar la estructura en el log para corregir el parser
+                        logger.warning(f"{source} {gch}: 0 items; respuesta: {json.dumps(js, default=str)[:600]}")
+                    events += got
                 except Exception as e:
                     logger.warning(f"{source} {gch}: {e}")
                 await asyncio.sleep(1.3)                               # limite documentado: 1 solicitud por segundo

@@ -44,6 +44,8 @@ check("GMGN tendencias: 2 items, chain robinhood", [e["chain"] for e in al.parse
 sm = al.parse_gmgn_rank(gm, "robinhood", "GMGN_SMART", al.GMGN_MIN_SMART)
 check("GMGN smart money: solo con >= 3 smart_degen", len(sm) == 1 and sm[0]["meta"]["smart_degen_count"] == 5)
 check("GMGN: cadena no soportada -> nada", al.parse_gmgn_rank(gm, "arc", "GMGN_TREND") == [])
+gm2 = {"code": 0, "data": {"code": 0, "data": {"rank": [{"chain": "robinhood", "address": EVM, "symbol": "FTD", "smart_degen_count": 4, "liquidity": 17468.6}]}}}
+check("GMGN: respuesta REAL con un nivel de anidado de mas (data.data.rank)", len(al.parse_gmgn_rank(gm2, "robinhood", "GMGN_TREND")) == 1 and len(al.parse_gmgn_rank(gm2, "robinhood", "GMGN_SMART", 3)) == 1)
 
 print("--- eleccion de par")
 pairs = [{"baseToken": {"address": SOL, "symbol": "JW"}, "priceUsd": "0.001", "liquidity": {"usd": 5000}, "pairAddress": "a", "dexId": "raydium", "pairCreatedAt": 1_000_000},
