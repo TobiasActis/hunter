@@ -62,6 +62,37 @@ check("KOL: guarda quien compro, a que precio y hace cuantos segundos", tk[0]["m
 check("KOL: cadena no cubierta (robinhood) -> nada", al.parse_gmgn_track(tr, "robinhood", "GMGN_KOL") == [])
 check("KOL: una operacion de hace mas de 10 min se descarta (la lista trae horas de antiguedad)", al.parse_gmgn_track(tr, "sol", "GMGN_KOL", now_s=1611) == [] and len(al.parse_gmgn_track(tr, "sol", "GMGN_KOL", now_s=1599)) == 1)
 
+print("--- enriquecimiento de alertas con la estructura del token (GMGN /v1/token/info)")
+ti = {"code": 0, "data": {"code": 0, "data": {"holder_count": 41, "liquidity": "8123.5", "price": {"price": "0.0000312"},
+      "stat": {"top_10_holder_rate": 0.44, "dev_team_hold_rate": 0.02, "creator_hold_rate": 0.0, "top_bundler_trader_percentage": 0.31, "top_rat_trader_percentage": 0.05, "fresh_wallet_rate": 0.6},
+      "wallet_tags_stat": {"sniper_wallets": 3, "bundler_wallets": 9, "rat_trader_wallets": 1}, "dev": {"creator_open_count": 7, "creator_token_status": "sell"}}}}
+pf = al.parse_token_info(ti)
+check("token info: extrae concentracion, bundles, francotiradores y el historial del creador (respuesta anidada)", pf and pf["top10"] == 0.44 and pf["bundler_pct"] == 0.31 and pf["sniper_w"] == 3 and pf["creator_open_count"] == 7 and pf["holder_count"] == 41 and pf["price"] == "0.0000312")
+check("token info: respuesta sin 'stat' -> None", al.parse_token_info({"code": 0, "data": {"x": 1}}) is None and al.parse_token_info(None) is None)
+import sqlite3 as _sq, asyncio as _aio
+_hdb = os.path.join(tempfile.mkdtemp(), "h.db"); _c = _sq.connect(_hdb)
+_c.execute("CREATE TABLE stampede_alerts (id INTEGER PRIMARY KEY, chain TEXT, token_address TEXT, triggered_at TEXT)")
+_c.executemany("INSERT INTO stampede_alerts VALUES (?,?,?,?)", [(1, "robinhood", "0xa1", "2026-09-21T10:00:00+00:00"), (2, "robinhood", "0xa2", "2026-09-21T10:01:00+00:00")]); _c.commit()
+_edb = os.path.join(tempfile.mkdtemp(), "e.db"); al.init_db(_edb)
+_calls = []
+async def _fake(client, key, path, params):
+    _calls.append(params["address"])
+    if params["address"] == "0xa3": raise RuntimeError("fallo de red")
+    return ti
+al._gmgn_get = _fake
+_sl = al.asyncio.sleep
+async def _nosleep(s): return None
+al.asyncio.sleep = _nosleep
+check("enriquecimiento: la primera pasada solo fija el punto de partida (no rellena el pasado)", _aio.run(al.enrich_alerts(None, "k", _hdb, _edb)) == 0 and _calls == [])
+_c.executemany("INSERT INTO stampede_alerts VALUES (?,?,?,?)", [(3, "robinhood", "0xa3", "2026-09-21T10:02:00+00:00"), (4, "robinhood", "0xa4", "2026-09-21T10:03:00+00:00"), (5, "base", "0xb5", "2026-09-21T10:04:00+00:00")]); _c.commit()
+check("enriquecimiento: procesa las alertas nuevas de Robinhood (ignora otras cadenas)", _aio.run(al.enrich_alerts(None, "k", _hdb, _edb)) == 2 and _calls == ["0xa3", "0xa4"])
+with al.conn_ctx(_edb) as _e:
+    _rows = {r["alert_id"]: dict(r) for r in _e.execute("SELECT * FROM at_alert_enrich")}
+    _last = _e.execute("SELECT v FROM at_state WHERE k='enrich_last_alert'").fetchone()[0]
+check("enriquecimiento: guarda los rasgos con el id de la alerta; un fallo queda como ok=0 y no se reintenta", _rows[4]["ok"] == 1 and '"top10": 0.44' in _rows[4]["feats"] and _rows[3]["ok"] == 0 and "fallo de red" in _rows[3]["note"] and _last == "4")
+check("enriquecimiento: sin clave no hace nada", _aio.run(al.enrich_alerts(None, "", _hdb, _edb)) == 0)
+al.asyncio.sleep = _sl
+
 print("--- eleccion de par")
 pairs = [{"baseToken": {"address": SOL, "symbol": "JW"}, "priceUsd": "0.001", "liquidity": {"usd": 5000}, "pairAddress": "a", "dexId": "raydium", "pairCreatedAt": 1_000_000},
          {"baseToken": {"address": SOL, "symbol": "JW"}, "priceUsd": "0.0011", "liquidity": {"usd": 20000}, "pairAddress": "b", "dexId": "pumpswap", "pairCreatedAt": 2_000_000},

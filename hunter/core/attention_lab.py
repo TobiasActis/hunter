@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS at_events (
 CREATE INDEX IF NOT EXISTS ix_at_status ON at_events(status);
 CREATE TABLE IF NOT EXISTS at_marks (event_id INTEGER NOT NULL, horizon_s INTEGER NOT NULL, ts_ms INTEGER NOT NULL, price REAL, quote_usd REAL, missed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(event_id, horizon_s));
 CREATE TABLE IF NOT EXISTS at_state (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS at_alert_enrich (
+    alert_id INTEGER PRIMARY KEY, token TEXT NOT NULL, alert_ms INTEGER, got_ms INTEGER, ok INTEGER NOT NULL, feats TEXT, note TEXT
+);
 """
 
 
@@ -411,6 +414,87 @@ async def fetch_sources(client, gmgn_key=None):
     return events
 
 
+# ------------------------------------------------------------------ enriquecimiento de alertas de memes con datos de estructura del token (GMGN)
+HUNTER_DB = os.path.join("data", "hunter.db")
+ENRICH_MAX_PER_CYCLE = 10
+
+
+def _unwrap(payload, key):
+    """La API real de GMGN anida un nivel de mas ({"code":0,"data":{"code":0,"data":{...}}}): baja hasta el objeto que trae `key`."""
+    d = (payload or {}).get("data") if isinstance(payload, dict) else None
+    while isinstance(d, dict) and key not in d and isinstance(d.get("data"), (dict, list)):
+        d = d["data"]
+    return d
+
+
+def parse_token_info(payload):
+    """Rasgos de estructura de un token (GMGN /v1/token/info): concentracion, equipo del desarrollador, bundles, insiders, francotiradores, billeteras nuevas, historial del creador. Devuelve dict plano o None."""
+    d = _unwrap(payload, "stat")
+    if not isinstance(d, dict) or "stat" not in d and "wallet_tags_stat" not in d:
+        return None
+    st, wt, dev = d.get("stat") or {}, d.get("wallet_tags_stat") or {}, d.get("dev") or {}
+    pr = d.get("price") if isinstance(d.get("price"), dict) else {}
+    f = {"holder_count": d.get("holder_count") or st.get("holder_count"), "top10": st.get("top_10_holder_rate"), "dev_team": st.get("dev_team_hold_rate"), "creator_hold": st.get("creator_hold_rate"),
+         "rat_pct": st.get("top_rat_trader_percentage"), "bundler_pct": st.get("top_bundler_trader_percentage"), "entrap_pct": st.get("top_entrapment_trader_percentage"),
+         "fresh_rate": st.get("fresh_wallet_rate"), "sniper_w": wt.get("sniper_wallets"), "rat_w": wt.get("rat_trader_wallets"), "bundler_w": wt.get("bundler_wallets"),
+         "creator_open_count": dev.get("creator_open_count"), "creator_status": dev.get("creator_token_status"), "liquidity": d.get("liquidity"), "price": pr.get("price") if pr else d.get("price")}
+    return {k: v for k, v in f.items() if v is not None}
+
+
+async def _gmgn_get(client, key, path, params):
+    q = dict(params, timestamp=int(time.time()), client_id=str(uuid.uuid4()))
+    r = await client.get(GMGN_HOST + path, params=q, headers={"X-APIKEY": key, "User-Agent": "hunter-paper-lab"}, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+async def enrich_alerts(client, key, hunter_db=HUNTER_DB, path=None, max_n=ENRICH_MAX_PER_CYCLE):
+    """Por cada alerta NUEVA de Robinhood de hunter.db (solo lectura), pide a GMGN la estructura del token y la guarda con el id de la alerta, para probar despues si separa a las corredoras (no toca lo que opera el sistema).
+    Empieza desde la ultima alerta existente (no rellena el pasado: los datos de hoy no valen para una alerta vieja)."""
+    if not key or not os.path.exists(hunter_db):
+        return 0
+    with conn_ctx(path) as c:
+        r = c.execute("SELECT v FROM at_state WHERE k='enrich_last_alert'").fetchone()
+        last = int(r["v"]) if r else None
+    h = sqlite3.connect(f"file:{hunter_db}?mode=ro", uri=True, timeout=10)
+    try:
+        if last is None:
+            last = h.execute("SELECT COALESCE(MAX(id), 0) FROM stampede_alerts WHERE chain='robinhood'").fetchone()[0]
+            with conn_ctx(path) as c:
+                c.execute("INSERT OR REPLACE INTO at_state (k, v) VALUES ('enrich_last_alert', ?)", (str(last),))
+            return 0
+        alerts = h.execute("SELECT id, token_address, triggered_at FROM stampede_alerts WHERE chain='robinhood' AND id > ? ORDER BY id LIMIT ?", (last, max_n)).fetchall()
+    finally:
+        h.close()
+    n = 0
+    for aid, tok, trig in alerts:
+        try:
+            js = await _gmgn_get(client, key, "/v1/token/info", {"chain": "robinhood", "address": tok})
+            feats = parse_token_info(js)
+            ok, note = (1, None) if feats else (0, "respuesta sin 'stat': " + json.dumps(js, default=str)[:200])
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:                                   # limite de velocidad: no avanzar, reintenta en el proximo ciclo
+                logger.warning("GMGN token/info: 429, reintenta despues")
+                break
+            feats, ok, note = None, 0, f"HTTP {e.response.status_code}"
+        except Exception as e:
+            feats, ok, note = None, 0, str(e)[:150]
+        try:
+            from datetime import datetime
+            alert_ms = int(datetime.fromisoformat(trig).timestamp() * 1000)
+        except (TypeError, ValueError):
+            alert_ms = None
+        with conn_ctx(path) as c:
+            c.execute("INSERT OR REPLACE INTO at_alert_enrich (alert_id, token, alert_ms, got_ms, ok, feats, note) VALUES (?,?,?,?,?,?,?)",
+                      (aid, tok, alert_ms, int(time.time() * 1000), ok, json.dumps(feats) if feats else None, note))
+            c.execute("INSERT OR REPLACE INTO at_state (k, v) VALUES ('enrich_last_alert', ?)", (str(aid),))
+        n += 1
+        if not ok and n <= 2:
+            logger.warning(f"enriquecimiento alerta #{aid}: {note}")
+        await asyncio.sleep(1.2)                                                # limite de GMGN: 1 solicitud por segundo
+    return n
+
+
 async def work_once(client, now_ms):
     with conn_ctx() as c:
         pend = [dict(r) for r in c.execute("SELECT * FROM at_events WHERE status='pending' ORDER BY id LIMIT 300")]
@@ -440,6 +524,8 @@ async def run():
                     if n:
                         logger.info(f"Atencion: {n} eventos nuevos")
                 await work_once(client, int(time.time() * 1000))
+                if key:
+                    await enrich_alerts(client, key)
             except Exception:
                 logger.exception("Atencion: error en el ciclo, reintenta")
             await asyncio.sleep(WORK_EVERY_S)
