@@ -120,6 +120,15 @@ check("150 ganadores claros contra base plana -> CUMPLE", al.decide(gan, [0.9 + 
 check("neto medio <= 1 -> NO CUMPLE", al.decide([0.8 + 0.02 * (i % 5) for i in range(150)], [0.7] * 150 + [0.71], "CTL")[0] == "NO CUMPLE")
 check("gana pero no supera a la base -> NO CUMPLE", al.decide(gan, gan, "CTL")[0] == "NO CUMPLE")
 check("el reporte corre sobre la base de prueba", "DEX_BOOST" in al.report_text(tmp))
+snap = al.get_snapshot(tmp, use_cache=False)
+r0 = [r for r in snap["rows"] if r["source"] == "DEX_BOOST"][0]
+check("dashboard: snapshot con una fila por fuente/cadena, contadores y veredicto", snap["available"] and snap["total_events"] == 3 and r0["events"] == 3 and r0["entered"] == 1 and r0["rejected"] == 1 and r0["no_price"] == 1 and r0["verdict"] in ("FALTA MUESTRA", "NO CUMPLE"))
+check("dashboard: neto por horizonte y ultimos eventos con la ultima medicion", r0["horizons"][3600]["n"] == 1 and 1.8 < r0["horizons"][3600]["mean"] < 2.0 and any(x["last_h"] == 3600 and x["last_net"] > 1.8 for x in snap["recent"]))
+check("dashboard: sin base -> disponible False (no rompe)", al.get_snapshot(os.path.join(tempfile.mkdtemp(), "no.db"), use_cache=False) == {"available": False})
+import json as _json
+check("dashboard: el snapshot se serializa a JSON", len(_json.dumps(snap, default=str)) > 100)
+import dashboard as _dash
+check("dashboard: la pagina de Memes incluye la pestana Atencion y su script", 'id="mtab-at"' in _dash.HTML_PAGE and "loadAt()" in _dash.HTML_PAGE and 'data-tab="at"' in _dash.HTML_PAGE and "<!--AT_TAB-->" not in _dash.HTML_PAGE)
 
 print("\nRESULTADO:", "TODO OK" if ok else "HAY ERRORES")
 raise SystemExit(0 if ok else 1)

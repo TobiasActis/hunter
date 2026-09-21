@@ -479,7 +479,7 @@ def report_text(path=None):
         st = event_stats(rows, h)
         if st["n"] == 0:
             continue
-        base_name = "CTL" if len(event_stats(groups.get(("CTL", ch), []), h)["worst"]) >= MIN_CTL_N else "DEX_PERFIL"
+        base_name = baseline_for(groups, ch)
         base = event_stats(groups.get((base_name, ch), []), h)["worst"] if src != base_name else []
         if src in ("CTL",) or src == base_name:
             verdict = "(base de comparacion)"
@@ -505,6 +505,82 @@ def report_text(path=None):
         lines.append(f"  {src:11s} {ch:9s} n={st['n']:4d} | neto medio {mean} (sin SIN DATO) | peor caso {worst} | >1: {win} | SIN DATO {st['missed']} | edad mediana {age} | {verdict}")
     lines.append(f"\nRegla (fijada 2026-09-21): >= {MIN_DECISION_N} medidos a 1 h, neto peor caso > 1 con IC95 y mejor que la base de comparacion con IC95 de la diferencia > 0.")
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ dashboard (pestana "Atencion" de la vista de Memes)
+LABELS = {"DEX_BOOST": "DexScreener: boost pago", "DEX_PERFIL": "DexScreener: perfil nuevo (base)", "GECKO_TREND": "GeckoTerminal: pools en tendencia", "CTL": "Control: pools nuevos sin lista",
+          "GMGN_TREND": "GMGN: tendencia 1 h", "GMGN_SMART": "GMGN: 3+ smart money", "GMGN_SMALLCAP": "Small caps > 24 h (escaneo 1)", "GMGN_FRESH24": "Small caps <= 24 h (escaneo 2)",
+          "GMGN_2NDWAVE": "Segunda ola (peak 150K, hoy 30-40K)", "GMGN_KOL": "GMGN: compra de KOL", "GMGN_SMARTBUY": "GMGN: compra de smart money"}
+_snap_cache = {"t": 0.0, "p": None, "v": None}
+
+
+def load_events_ro(path=None):
+    """Como load_events pero abre la base en SOLO LECTURA (la usa el dashboard; no crea nada)."""
+    c = sqlite3.connect(f"file:{path or DB}?mode=ro", uri=True, timeout=10)
+    c.row_factory = sqlite3.Row
+    try:
+        ev = [dict(r) for r in c.execute("SELECT * FROM at_events")]
+        marks = {}
+        for r in c.execute("SELECT * FROM at_marks"):
+            marks.setdefault(r["event_id"], {})[r["horizon_s"]] = dict(r)
+    finally:
+        c.close()
+    for e in ev:
+        e["marks"] = marks.get(e["id"], {})
+    return ev
+
+
+def baseline_for(groups, ch):
+    """Nombre de la base de comparacion de una cadena: CTL si tiene >= MIN_CTL_N medidos a 1 h, si no DEX_PERFIL."""
+    return "CTL" if len(event_stats(groups.get(("CTL", ch), []), DECISION_HORIZON_S)["worst"]) >= MIN_CTL_N else "DEX_PERFIL"
+
+
+def get_snapshot(path=None, use_cache=True):
+    """Datos de la pestana 'Atencion' del dashboard: una fila por fuente y cadena (eventos, neto por horizonte, veredicto de la regla fijada) y los ultimos eventos."""
+    p = path or DB
+    now = time.time()
+    if use_cache and _snap_cache["v"] is not None and _snap_cache["p"] == p and now - _snap_cache["t"] < 45:
+        return _snap_cache["v"]
+    if not os.path.exists(p):
+        return {"available": False}
+    ev = load_events_ro(p)
+    every, entered = {}, {}
+    for e in ev:
+        every.setdefault((e["source"], e["chain"]), []).append(e)
+        if e["status"] in ("active", "done"):
+            entered.setdefault((e["source"], e["chain"]), []).append(e)
+    rows = []
+    for (src, ch), evs in every.items():
+        ent = entered.get((src, ch), [])
+        hz = {h: {k: v for k, v in event_stats(ent, h).items() if k != "worst"} for h in HORIZONS_S}
+        base_name = baseline_for(entered, ch)
+        if src == "CTL" or src == base_name:
+            verdict, detail = "BASE", "base de comparacion"
+        else:
+            verdict, detail = decide(event_stats(ent, DECISION_HORIZON_S)["worst"], event_stats(entered.get((base_name, ch), []), DECISION_HORIZON_S)["worst"], base_name)
+        ages = sorted(e["age_h"] for e in ent if e["age_h"] is not None)
+        rows.append({"source": src, "label": LABELS.get(src, src), "chain": ch, "events": len(evs), "entered": len(ent), "rejected": sum(1 for e in evs if e["status"] == "rejected"),
+                     "no_price": sum(1 for e in evs if e["status"] == "no_price"), "horizons": hz, "verdict": verdict, "detail": detail, "baseline": base_name,
+                     "median_age_h": ages[len(ages) // 2] if ages else None})
+    order = {s: i for i, s in enumerate(SOURCES)}
+    rows.sort(key=lambda r: (order.get(r["source"], 99), r["chain"]))
+    recent = []
+    for e in sorted(ev, key=lambda x: x["id"], reverse=True)[:40]:
+        last_h = max((h for h, m in e["marks"].items() if not m["missed"]), default=None)
+        last_net = None
+        if last_h is not None and e["entry_price"]:
+            m = e["marks"][last_h]
+            last_net = net_multiple(e["entry_price"], e["entry_quote_usd"], m["price"], m["quote_usd"], e["chain"])
+        try:
+            meta = json.loads(e["meta"] or "{}")
+        except ValueError:
+            meta = {}
+        recent.append({"ms": e["first_ms"], "source": e["source"], "label": LABELS.get(e["source"], e["source"]), "chain": e["chain"], "symbol": e["symbol"], "token": e["token"], "status": e["status"],
+                       "lag_s": e["entry_lag_s"], "age_h": e["age_h"], "liq": e["entry_liq_usd"], "last_h": last_h, "last_net": last_net, "who": meta.get("twitter")})
+    snap = {"available": True, "generated_ms": int(now * 1000), "total_events": len(ev), "config": {"decision_horizon_s": DECISION_HORIZON_S, "min_n": MIN_DECISION_N, "horizons": HORIZONS_S, "size_usd": SIZE_USD},
+            "rows": rows, "recent": recent}
+    _snap_cache.update({"t": now, "p": p, "v": snap})
+    return snap
 
 
 if __name__ == "__main__":

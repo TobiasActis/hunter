@@ -171,6 +171,7 @@ HTML_PAGE = """<!DOCTYPE html>
     <button class="tabbtn mtabbtn" data-tab="tx" onclick="showMTab('tx')">Transacciones</button>
     <button class="tabbtn mtabbtn" data-tab="sg" onclick="showMTab('sg')">Graduaciones lentas<span class="count" id="mcount-sg">-</span></button>
     <button class="tabbtn mtabbtn" data-tab="bot" onclick="showMTab('bot')">Bot de Telegram<span class="count" id="mcount-bot">-</span></button>
+    <button class="tabbtn mtabbtn" data-tab="at" onclick="showMTab('at')">Atenci&oacute;n<span class="count" id="mcount-at">-</span></button>
   </div>
 
   <div class="mtab" id="mtab-resumen">
@@ -269,6 +270,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
 <!--SG_TAB-->
 <!--BOT_TAB-->
+<!--AT_TAB-->
 
 <script>
 const PAGE_SIZE = 25;
@@ -786,10 +788,10 @@ setInterval(refresh, 5000);
 """
 
 from nav_common import NAV_CSS, nav_html
-from memes_tabs import MEMES_CSS, SG_TAB_HTML, BOT_TAB_HTML, MEMES_JS
+from memes_tabs import MEMES_CSS, SG_TAB_HTML, BOT_TAB_HTML, AT_TAB_HTML, MEMES_JS
 
 HTML_PAGE = (HTML_PAGE.replace("/*NAV_CSS*/", NAV_CSS + MEMES_CSS).replace("<!--NAV-->", nav_html("memes"))
-             .replace("<!--SG_TAB-->", SG_TAB_HTML).replace("<!--BOT_TAB-->", BOT_TAB_HTML).replace("//MEMES_JS", MEMES_JS))
+             .replace("<!--SG_TAB-->", SG_TAB_HTML).replace("<!--BOT_TAB-->", BOT_TAB_HTML).replace("<!--AT_TAB-->", AT_TAB_HTML).replace("//MEMES_JS", MEMES_JS))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -833,6 +835,17 @@ def api_sg():
     # Graduaciones lentas de pump.fun en PAPEL (core/slowgrad.py).
     from core.slowgrad import get_snapshot
     return Response(content=json.dumps(get_snapshot(), default=str).encode("utf-8"), media_type="application/json")
+
+
+@app.get("/api/at")
+def api_at():
+    # Laboratorio de atencion en PAPEL: fuentes publicas de tokens medidas hacia adelante (core/attention_lab.py, base propia data/attention.db, solo lectura).
+    from core.attention_lab import get_snapshot
+    try:
+        snap = get_snapshot()
+    except Exception as e:                                       # la pestana nunca debe romper el dashboard
+        snap = {"available": False, "error": str(e)}
+    return Response(content=json.dumps(snap, default=str).encode("utf-8"), media_type="application/json")
 
 
 @app.post("/api/sg/bot")

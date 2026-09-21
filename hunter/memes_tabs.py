@@ -47,6 +47,23 @@ BOT_TAB_HTML = """  <div class="mtab" id="mtab-bot" hidden>
   </div>
 """
 
+AT_TAB_HTML = """  <div class="mtab" id="mtab-at" hidden>
+    <h2 style="margin-top:6px">Atenci&oacute;n: &iquest;qu&eacute; se&ntilde;ales anticipan a las buenas memes? (papel)</h2>
+    <details class="info"><summary>C&oacute;mo funciona y qu&eacute; esperar</summary>
+      <p>Cada fuente es una lista p&uacute;blica de tokens (DexScreener, GeckoTerminal, GMGN y los escaneos de otros traders). La <b>primera vez</b> que un token aparece en una fuente se simula una compra de <b>$100</b> al primer precio de DexScreener y se mide su precio a 5 min, 15 min, 1 h, 4 h y 24 h. <b>Nunca opera de verdad.</b></p>
+      <p><b>Costos:</b> comisi&oacute;n por lado (0,3% en Solana y Base, 1% en Robinhood), deslizamiento seg&uacute;n la liquidez real del pool y costo de transacci&oacute;n. Si el token desaparece queda <b>sin dato</b>; el <b>peor caso</b> cuenta esos como p&eacute;rdida total (un token que desaparece suele ser un rug).</p>
+      <p><b>Regla para creerle</b> (fijada el 2026-09-21, un solo horizonte: 1 h): al menos 100 medidos, neto medio en peor caso mayor a +0% con IC95 que no cruza 0, y mejor que la base de comparaci&oacute;n de esa cadena (control de pools nuevos, o los perfiles nuevos de DexScreener) con IC95 de la diferencia mayor a 0. Hasta llegar a 100 dice <b>falta muestra</b>: no es un resultado.</p>
+    </details>
+    <div class="stats" id="at-cards"></div>
+    <h2>Veredicto a 1 hora (neto de costos)</h2>
+    <table><thead><tr><th>Fuente</th><th>Cadena</th><th>Eventos</th><th>Con entrada</th><th>Medidas a 1 h</th><th>Neto medio (&plusmn;IC95)</th><th>Peor caso</th><th>% que gana neto</th><th>Edad mediana</th><th>Veredicto</th></tr></thead><tbody id="at-body"></tbody></table>
+    <h2>Neto medio por horizonte</h2>
+    <table><thead><tr><th>Fuente</th><th>Cadena</th><th>5 min</th><th>15 min</th><th>1 h</th><th>4 h</th><th>24 h</th></tr></thead><tbody id="at-hz"></tbody></table>
+    <h2>&Uacute;ltimos eventos</h2>
+    <table><thead><tr><th>Hace</th><th>Fuente</th><th>Cadena</th><th>Token</th><th>Estado</th><th>Retraso de entrada</th><th>Edad del token</th><th>Liquidez</th><th>&Uacute;ltima medici&oacute;n</th></tr></thead><tbody id="at-recent"></tbody></table>
+  </div>
+"""
+
 MEMES_JS = """
 // ---------- pestanas de la vista de memes
 function showMTab(name) {
@@ -129,4 +146,47 @@ async function loadSg() {
   if (c1) c1.textContent = v6.signals; if (c2) c2.textContent = bot.signals + man.signals;
 }
 loadSg(); setInterval(loadSg, 30000);
+
+// ---------- laboratorio de atencion (fuentes publicas de tokens)
+const AT_STATUS = {pending: "buscando precio", active: "midiendo", done: "completo", rejected: "rechazado (liquidez)", no_price: "sin precio"};
+const AT_VERDICT = {"CUMPLE": ["CUMPLE", "pnl-pos"], "NO CUMPLE": ["NO CUMPLE", "pnl-neg"], "FALTA MUESTRA": ["falta muestra", ""], "BASE": ["base", ""]};
+function atEsc(s) { return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c])); }
+function atHz(h) { return h.n ? `<span class="${sgCls(h.mean - 1)}">${sgPc(h.mean)}</span> <span class="mono" style="color:#8b949e">n=${h.n}</span>` : `<span class="mono" style="color:#8b949e">--</span>`; }
+async function loadAt() {
+  let s = null;
+  try { s = await (await fetch("/api/at")).json(); } catch (e) { return; }
+  const cards = document.getElementById("at-cards");
+  if (!s.available) { cards.innerHTML = sgCard("Laboratorio", "sin datos", "todavía no arrancó el servicio hunter-attention"); return; }
+  const H = s.config.decision_horizon_s, key = String(H);
+  const measured = s.rows.filter(r => r.horizons[key].n > 0);
+  const cumple = s.rows.filter(r => r.verdict === "CUMPLE").length;
+  const best = s.rows.filter(r => r.horizons[key].n >= 30 && r.verdict !== "BASE").sort((a, b) => b.horizons[key].mean_worst - a.horizons[key].mean_worst)[0];
+  cards.innerHTML =
+    sgCard("Eventos registrados", s.total_events, `${s.rows.length} combinaciones fuente/cadena`) +
+    sgCard("Fuentes que cumplen la regla", cumple, `de ${s.rows.filter(r => r.verdict !== "BASE").length} &middot; necesitan ${s.config.min_n}+ medidas a 1 h`, cumple ? "pnl-pos" : "") +
+    sgCard("Con medición a 1 h", measured.length, `${measured.reduce((a, r) => a + r.horizons[key].n, 0)} medidas en total`) +
+    sgCard("Mejor neto (peor caso, 30+ medidas)", best ? sgPc(best.horizons[key].mean_worst) : "--", best ? `${atEsc(best.label)} &middot; ${atEsc(best.chain)} &middot; n=${best.horizons[key].n}` : "todavía no hay 30 medidas", best ? sgCls(best.horizons[key].mean_worst - 1) : "");
+  const body = document.getElementById("at-body"), hzb = document.getElementById("at-hz");
+  body.innerHTML = ""; hzb.innerHTML = "";
+  for (const r of s.rows) {
+    const h = r.horizons[key], v = AT_VERDICT[r.verdict] || [r.verdict, ""];
+    const ci = h.ci === null || h.ci === undefined ? "" : " &plusmn;" + (h.ci * 100).toFixed(0) + "%";
+    body.insertAdjacentHTML("beforeend", `<tr><td>${atEsc(r.label)}</td><td>${atEsc(r.chain)}</td><td>${r.events}</td><td>${r.entered}</td><td>${h.n}</td>
+      <td class="${h.mean === null ? "" : sgCls(h.mean - 1)}">${h.mean === null ? "--" : sgPc(h.mean) + ci}</td><td class="${h.mean_worst === null ? "" : sgCls(h.mean_worst - 1)}">${h.mean_worst === null ? "--" : sgPc(h.mean_worst)}</td>
+      <td>${h.win === null ? "--" : (h.win * 100).toFixed(0) + "%"}</td><td>${r.median_age_h === null ? "--" : r.median_age_h < 48 ? r.median_age_h.toFixed(1) + " h" : (r.median_age_h / 24).toFixed(1) + " d"}</td>
+      <td class="${v[1]}" title="${atEsc(r.detail)}">${v[0]}<div class="mono" style="font-size:10px;color:#8b949e">${atEsc(r.detail)}</div></td></tr>`);
+    hzb.insertAdjacentHTML("beforeend", `<tr><td>${atEsc(r.label)}</td><td>${atEsc(r.chain)}</td>` + s.config.horizons.map(x => `<td>${atHz(r.horizons[String(x)])}</td>`).join("") + `</tr>`);
+  }
+  if (!s.rows.length) body.innerHTML = `<tr><td colspan="10" class="empty">Todavía no hay eventos.</td></tr>`;
+  const rb = document.getElementById("at-recent");
+  rb.innerHTML = s.recent.length ? "" : `<tr><td colspan="9" class="empty">Todavía no hay eventos.</td></tr>`;
+  for (const e of s.recent) {
+    const last = e.last_h === null ? "--" : sgHl(e.last_h) + ": " + (e.last_net === null ? "--" : `<span class="${sgCls(e.last_net - 1)}">${sgPc(e.last_net)} neto</span>`);
+    rb.insertAdjacentHTML("beforeend", `<tr><td>${sgAgo(e.ms)}</td><td>${atEsc(e.label)}${e.who ? ' <span class="mono" style="color:#8b949e">@' + atEsc(e.who) + '</span>' : ""}</td><td>${atEsc(e.chain)}</td>
+      <td>${atEsc(e.symbol || (e.token || "").slice(0, 8))}</td><td>${AT_STATUS[e.status] || atEsc(e.status)}</td><td>${e.lag_s === null ? "--" : e.lag_s.toFixed(0) + " s"}</td>
+      <td>${e.age_h === null ? "--" : e.age_h < 48 ? e.age_h.toFixed(1) + " h" : (e.age_h / 24).toFixed(1) + " d"}</td><td>${e.liq === null ? "--" : "$" + Math.round(e.liq).toLocaleString("en-US")}</td><td>${last}</td></tr>`);
+  }
+  const c = document.getElementById("mcount-at"); if (c) c.textContent = s.total_events;
+}
+loadAt(); setInterval(loadAt, 60000);
 """
