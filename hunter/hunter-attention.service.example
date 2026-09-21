@@ -13,7 +13,8 @@ EnvironmentFile=-/home/ubuntu/hunter/.gmgn_env
 ExecStart=/home/ubuntu/hunter/venv/bin/python -m core.attention_lab
 Restart=always
 RestartSec=15
-MemoryMax=150M
+MemoryMax=100M
+OOMScoreAdjust=900
 
 [Install]
 WantedBy=multi-user.target
