@@ -47,6 +47,18 @@ check("GMGN: cadena no soportada -> nada", al.parse_gmgn_rank(gm, "arc", "GMGN_T
 gm2 = {"code": 0, "data": {"code": 0, "data": {"rank": [{"chain": "robinhood", "address": EVM, "symbol": "FTD", "smart_degen_count": 4, "liquidity": 17468.6}]}}}
 check("GMGN: respuesta REAL con un nivel de anidado de mas (data.data.rank)", len(al.parse_gmgn_rank(gm2, "robinhood", "GMGN_TREND")) == 1 and len(al.parse_gmgn_rank(gm2, "robinhood", "GMGN_SMART", 3)) == 1)
 
+tr = {"code": 0, "data": {"code": 0, "data": {"list": [
+    {"maker": "W1", "side": "buy", "base_address": SOL, "amount_usd": 300, "price_usd": 0.001, "timestamp": 1000, "is_open_or_close": 0, "maker_info": {"twitter_username": "kol1", "tags": ["kol"]}},
+    {"maker": "W2", "side": "buy", "base_address": SOL, "amount_usd": 900, "price_usd": 0.002, "timestamp": 1010, "is_open_or_close": 0},
+    {"maker": "W3", "side": "sell", "base_address": "VENDIDO", "amount_usd": 500, "timestamp": 1001, "is_open_or_close": 1},
+    {"maker": "W4", "side": "buy", "base_address": "CHICO", "amount_usd": 10, "timestamp": 1002, "is_open_or_close": 0},
+    {"maker": "W5", "side": "buy", "base_address": "CIERRE", "amount_usd": 500, "timestamp": 1003, "is_open_or_close": 1}]}}}
+tk = al.parse_gmgn_track(tr, "sol", "GMGN_KOL", now_s=1060)
+check("KOL: solo compras que abren posicion y >= $50, un evento por token (la primera)", len(tk) == 1 and tk[0]["token"] == SOL and tk[0]["meta"]["amount_usd"] == 300)
+check("KOL: guarda quien compro, a que precio y hace cuantos segundos", tk[0]["meta"]["twitter"] == "kol1" and tk[0]["meta"]["kol_price_usd"] == 0.001 and tk[0]["meta"]["lag_s"] == 60)
+check("KOL: cadena no cubierta (robinhood) -> nada", al.parse_gmgn_track(tr, "robinhood", "GMGN_KOL") == [])
+check("KOL: una operacion de hace mas de 10 min se descarta (la lista trae horas de antiguedad)", al.parse_gmgn_track(tr, "sol", "GMGN_KOL", now_s=1611) == [] and len(al.parse_gmgn_track(tr, "sol", "GMGN_KOL", now_s=1599)) == 1)
+
 print("--- eleccion de par")
 pairs = [{"baseToken": {"address": SOL, "symbol": "JW"}, "priceUsd": "0.001", "liquidity": {"usd": 5000}, "pairAddress": "a", "dexId": "raydium", "pairCreatedAt": 1_000_000},
          {"baseToken": {"address": SOL, "symbol": "JW"}, "priceUsd": "0.0011", "liquidity": {"usd": 20000}, "pairAddress": "b", "dexId": "pumpswap", "pairCreatedAt": 2_000_000},

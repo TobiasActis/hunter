@@ -49,8 +49,11 @@ WORK_EVERY_S = 20
 GECKO_NETS = {"solana": "solana", "base": "base", "eth": "ethereum"}                        # red de GeckoTerminal -> chainId de DexScreener
 GMGN_CHAINS = {"sol": "solana", "robinhood": "robinhood"}                                    # cadena de GMGN -> chainId de DexScreener
 GMGN_MIN_SMART = 3
+TRACK_CHAINS = {"sol": "solana", "base": "base"}                                             # /v1/user/kol y /v1/user/smartmoney solo cubren sol/bsc/base/eth (NO Robinhood)
+TRACK_MIN_USD = 50.0
+TRACK_MAX_LAG_S = 600.0                                                                       # la lista trae las ultimas 100 operaciones (horas de antiguedad): solo cuentan las de los ultimos 10 min
 CTL_SAMPLE = 4
-SOURCES = ("DEX_BOOST", "DEX_PERFIL", "GECKO_TREND", "CTL", "GMGN_TREND", "GMGN_SMART")
+SOURCES = ("DEX_BOOST", "DEX_PERFIL", "GECKO_TREND", "CTL", "GMGN_TREND", "GMGN_SMART", "GMGN_KOL", "GMGN_SMARTBUY")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS at_events (
@@ -158,6 +161,39 @@ def parse_gmgn_rank(payload, gmgn_chain, source, min_smart=None):
             continue
         meta = {k: it.get(k) for k in ("rank", "hot_level", "smart_degen_count", "renowned_count", "rug_ratio", "volume", "liquidity", "holder_count", "launchpad_platform", "is_wash_trading") if k in it}
         out.append({"source": source, "chain": chain, "token": norm_token(chain, addr), "meta": meta})
+    return out
+
+
+def parse_gmgn_track(payload, gmgn_chain, source, now_s=None, min_usd=TRACK_MIN_USD, max_lag_s=TRACK_MAX_LAG_S):
+    """Operaciones de KOL o smart money de GMGN (/v1/user/kol, /v1/user/smartmoney): data.list de {maker, side, base_address, amount_usd, price_usd, timestamp, is_open_or_close, maker_info.tags...}.
+    Solo COMPRAS que abren o suman posicion (side buy, is_open_or_close == 0) de al menos `min_usd`. Un evento por token (la primera compra que vemos); guarda quien compro, cuanto, a que precio y hace cuanto."""
+    chain = TRACK_CHAINS.get(gmgn_chain)
+    data = (payload or {}).get("data")
+    while isinstance(data, dict) and "list" not in data and isinstance(data.get("data"), (dict, list)):
+        data = data["data"]
+    items = data.get("list") if isinstance(data, dict) else data
+    seen, out = set(), []
+    for it in items if isinstance(items, list) else []:
+        addr = it.get("base_address")
+        if not chain or not addr or it.get("side") != "buy" or (it.get("is_open_or_close") not in (0, "0", None)):
+            continue
+        try:
+            usd = float(it.get("amount_usd") or 0)
+        except (TypeError, ValueError):
+            usd = 0.0
+        if usd < min_usd:
+            continue
+        tok = norm_token(chain, addr)
+        ts = it.get("timestamp")
+        if now_s and max_lag_s and (not ts or now_s - float(ts) > max_lag_s):     # operacion vieja: entrar horas despues no mide "seguir al KOL"
+            continue
+        if tok in seen:
+            continue
+        seen.add(tok)
+        mi = it.get("maker_info") or {}
+        meta = {"maker": it.get("maker"), "twitter": mi.get("twitter_username"), "tags": mi.get("tags"), "amount_usd": usd, "kol_price_usd": it.get("price_usd"), "trade_ts": ts,
+                "lag_s": (now_s - float(ts)) if (now_s and ts) else None}
+        out.append({"source": source, "chain": chain, "token": tok, "meta": meta})
     return out
 
 
@@ -349,6 +385,21 @@ async def fetch_sources(client, gmgn_key=None):
                 except Exception as e:
                     logger.warning(f"{source} {gch}: {e}")
                 await asyncio.sleep(1.3)                               # limite documentado: 1 solicitud por segundo
+        for gch in TRACK_CHAINS:
+            for source, path in (("GMGN_KOL", "/v1/user/kol"), ("GMGN_SMARTBUY", "/v1/user/smartmoney")):
+                try:
+                    q = {"chain": gch, "limit": 100, "timestamp": int(time.time()), "client_id": str(uuid.uuid4())}
+                    js = await _get(client, GMGN_HOST + path, params=q, headers={"X-APIKEY": gmgn_key, "User-Agent": "hunter-paper-lab"})
+                    if isinstance(js, dict) and js.get("code") not in (None, 0):
+                        logger.warning(f"{source} {gch}: respuesta {js.get('code')} {str(js.get('msg') or js.get('message'))[:120]}")
+                        continue
+                    got = parse_gmgn_track(js, gch, source, now_s=time.time())
+                    if not got and source == "GMGN_KOL":
+                        logger.warning(f"{source} {gch}: 0 compras; respuesta: {json.dumps(js, default=str)[:500]}")
+                    events += got
+                except Exception as e:
+                    logger.warning(f"{source} {gch}: {e}")
+                await asyncio.sleep(1.3)
     return events
 
 
@@ -429,6 +480,17 @@ def report_text(path=None):
             verdict = f"{v}: {det}"
         ages = sorted(e["age_h"] for e in rows if e["age_h"] is not None)
         age = f"{ages[len(ages) // 2]:.0f} h" if ages else "--"
+        drift = []
+        if src in ("GMGN_KOL", "GMGN_SMARTBUY"):                                    # cuanto se movio el precio entre la compra del KOL / smart money y nuestra entrada (costo del retraso)
+            for e in rows:
+                try:
+                    kp = float((json.loads(e["meta"] or "{}")).get("kol_price_usd") or 0)
+                except (TypeError, ValueError):
+                    kp = 0
+                if kp > 0 and e["entry_price"]:
+                    drift.append(e["entry_price"] / kp)
+            drift.sort()
+        age += f" | entramos a {drift[len(drift) // 2]:.2f}x del precio del KOL (mediana, n={len(drift)})" if drift else ""
         mean = f"{st['mean']:.3f}x" if st["mean"] is not None else "--"
         worst = f"{st['mean_worst']:.3f}x" if st["mean_worst"] is not None else "--"
         win = f"{st['win'] * 100:.0f}%" if st["win"] is not None else "--"
