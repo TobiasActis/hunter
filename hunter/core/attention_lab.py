@@ -58,7 +58,9 @@ TRACK_MIN_USD = 50.0
 TRACK_MAX_LAG_S = 600.0                                                                       # la lista trae las ultimas 100 operaciones (horas de antiguedad): solo cuentan las de los ultimos 10 min
 CTL_SAMPLE = 4
 SMALLCAP_PARAMS = {"interval": "24h", "min_created": "24h", "max_marketcap": 50000, "min_liquidity": 10000, "min_volume": 10000, "order_by": "volume", "direction": "desc"}      # el escaneo de un trader: > 24 h de edad, < $50K de capitalizacion, > $10K de liquidez y de volumen
-SOURCES = ("DEX_BOOST", "DEX_PERFIL", "GECKO_TREND", "CTL", "GMGN_TREND", "GMGN_SMART", "GMGN_SMALLCAP", "GMGN_KOL", "GMGN_SMARTBUY")
+FRESH24_PARAMS = {"interval": "6h", "max_created": "24h", "max_marketcap": 50000, "min_liquidity": 10000, "min_volume": 10000, "order_by": "volume", "direction": "desc"}      # el mismo escaneo pero de otro trader con la edad AL REVES: <= 24 h, volumen de 6 h > $10K
+WAVE2_PARAMS = {"interval": "1h", "min_history_highest_marketcap": 150000, "min_marketcap": 30000, "max_marketcap": 40000, "min_liquidity": 10000, "min_volume": 10000, "order_by": "volume", "direction": "desc"}     # "segunda ola": llego a >= 150K de capitalizacion, ahora en 30-40K, con liquidez y volumen vivos
+SOURCES = ("DEX_BOOST", "DEX_PERFIL", "GECKO_TREND", "CTL", "GMGN_TREND", "GMGN_SMART", "GMGN_SMALLCAP", "GMGN_FRESH24", "GMGN_2NDWAVE", "GMGN_KOL", "GMGN_SMARTBUY")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS at_events (
@@ -377,7 +379,7 @@ async def fetch_sources(client, gmgn_key=None):
     if gmgn_key:
         for gch in GMGN_CHAINS:
             for source, extra, min_smart in (("GMGN_TREND", {}, None), ("GMGN_SMART", {"order_by": "smart_degen_count", "direction": "desc"}, GMGN_MIN_SMART),
-                                             ("GMGN_SMALLCAP", SMALLCAP_PARAMS, None)):
+                                             ("GMGN_SMALLCAP", SMALLCAP_PARAMS, None), ("GMGN_FRESH24", FRESH24_PARAMS, None), ("GMGN_2NDWAVE", WAVE2_PARAMS, None)):
                 try:
                     q = dict({"chain": gch, "interval": "1h", "limit": 50, "timestamp": int(time.time()), "client_id": str(uuid.uuid4())}, **extra)
                     js = await _get(client, GMGN_HOST + "/v1/market/rank", params=q, headers={"X-APIKEY": gmgn_key, "User-Agent": "hunter-paper-lab"})
