@@ -73,6 +73,11 @@ CREATE TABLE IF NOT EXISTS at_events (
 CREATE INDEX IF NOT EXISTS ix_at_status ON at_events(status);
 CREATE TABLE IF NOT EXISTS at_marks (event_id INTEGER NOT NULL, horizon_s INTEGER NOT NULL, ts_ms INTEGER NOT NULL, price REAL, quote_usd REAL, missed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(event_id, horizon_s));
 CREATE TABLE IF NOT EXISTS at_state (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS at_trail_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, wallet TEXT NOT NULL, token TEXT NOT NULL, tb REAL NOT NULL, tx_id INTEGER, status TEXT NOT NULL,
+    entry_price REAL, peak REAL, ret_b REAL, resolved_ms INTEGER, UNIQUE(wallet, token)
+);
+CREATE INDEX IF NOT EXISTS ix_at_trail_status ON at_trail_events(status);
 CREATE TABLE IF NOT EXISTS at_runner_score (
     alert_id INTEGER PRIMARY KEY, token TEXT NOT NULL, ts_ms INTEGER, score REAL, top2 INTEGER, top5 INTEGER, feats TEXT, note TEXT
 );
@@ -99,6 +104,11 @@ def init_db(path=None):
     with conn_ctx(path) as c:
         c.execute("PRAGMA journal_mode=WAL")
         c.executescript(SCHEMA)
+        for col in ("peak REAL", "ret_b REAL", "resolved_ms INTEGER"):                       # migracion: resultado del puntaje de corredoras
+            try:
+                c.execute(f"ALTER TABLE at_runner_score ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
 
 
 # ------------------------------------------------------------------ logica pura (sin red)
@@ -420,6 +430,18 @@ async def fetch_sources(client, gmgn_key=None):
 # ------------------------------------------------------------------ enriquecimiento de alertas de memes con datos de estructura del token (GMGN)
 HUNTER_DB = os.path.join("data", "hunter.db")
 ENRICH_MAX_PER_CYCLE = 10
+# --- medicion hacia adelante (core/forward_eval.py)
+TRAIL_JSON = os.path.join("data", "trail_wallets.json")
+FOLLOW_DELAY_S = 5.0                 # retraso con el que se "sigue" una compra ajena
+RUNNER_DELAY_S = 2.0                 # latencia de entrada de una alerta (igual que SIM_ENTRY_LATENCY_S)
+OUTCOME_WINDOW_S = 3600.0
+RESOLVE_AFTER_S = OUTCOME_WINDOW_S + 120
+EXIT_COST = 0.02                     # costo de ida y vuelta medido en la v5 (~2% del monto)
+CONTROL_MOD = 97                     # 1 de cada 97 compras ajenas (por id) entra como control
+TRAIL_BATCH = 20000
+PRICE_MAX = 1e-5                     # limpieza de datos: precio en ETH por token, igual que en los estudios
+USD_MAX_TX = 20000.0
+NON_ETH_QUOTE = "0x" + "0" * 40
 
 
 def _unwrap(payload, key):
@@ -586,6 +608,10 @@ async def run():
                 if key:
                     await enrich_alerts(client, key)
                 score_runner()
+                from core import forward_eval as fe                              # import tardio: forward_eval importa este modulo
+                fe.track_trail()
+                fe.resolve_trail()
+                fe.resolve_runner()
             except Exception:
                 logger.exception("Atencion: error en el ciclo, reintenta")
             await asyncio.sleep(WORK_EVERY_S)

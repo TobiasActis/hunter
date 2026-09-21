@@ -172,6 +172,8 @@ HTML_PAGE = """<!DOCTYPE html>
     <button class="tabbtn mtabbtn" data-tab="sg" onclick="showMTab('sg')">Graduaciones lentas<span class="count" id="mcount-sg">-</span></button>
     <button class="tabbtn mtabbtn" data-tab="bot" onclick="showMTab('bot')">Bot de Telegram<span class="count" id="mcount-bot">-</span></button>
     <button class="tabbtn mtabbtn" data-tab="at" onclick="showMTab('at')">Atenci&oacute;n<span class="count" id="mcount-at">-</span></button>
+    <button class="tabbtn mtabbtn" data-tab="rc" onclick="showMTab('rc')">Corredoras<span class="count" id="mcount-rc">-</span></button>
+    <button class="tabbtn mtabbtn" data-tab="tr" onclick="showMTab('tr')">Rastro de billeteras<span class="count" id="mcount-tr">-</span></button>
   </div>
 
   <div class="mtab" id="mtab-resumen">
@@ -271,6 +273,8 @@ HTML_PAGE = """<!DOCTYPE html>
 <!--SG_TAB-->
 <!--BOT_TAB-->
 <!--AT_TAB-->
+<!--RC_TAB-->
+<!--TR_TAB-->
 
 <script>
 const PAGE_SIZE = 25;
@@ -788,10 +792,11 @@ setInterval(refresh, 5000);
 """
 
 from nav_common import NAV_CSS, nav_html
-from memes_tabs import MEMES_CSS, SG_TAB_HTML, BOT_TAB_HTML, AT_TAB_HTML, MEMES_JS
+from memes_tabs import MEMES_CSS, SG_TAB_HTML, BOT_TAB_HTML, AT_TAB_HTML, RC_TAB_HTML, TR_TAB_HTML, MEMES_JS
 
 HTML_PAGE = (HTML_PAGE.replace("/*NAV_CSS*/", NAV_CSS + MEMES_CSS).replace("<!--NAV-->", nav_html("memes"))
-             .replace("<!--SG_TAB-->", SG_TAB_HTML).replace("<!--BOT_TAB-->", BOT_TAB_HTML).replace("<!--AT_TAB-->", AT_TAB_HTML).replace("//MEMES_JS", MEMES_JS))
+             .replace("<!--SG_TAB-->", SG_TAB_HTML).replace("<!--BOT_TAB-->", BOT_TAB_HTML).replace("<!--AT_TAB-->", AT_TAB_HTML)
+             .replace("<!--RC_TAB-->", RC_TAB_HTML).replace("<!--TR_TAB-->", TR_TAB_HTML).replace("//MEMES_JS", MEMES_JS))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -844,6 +849,28 @@ def api_at():
     try:
         snap = get_snapshot()
     except Exception as e:                                       # la pestana nunca debe romper el dashboard
+        snap = {"available": False, "error": str(e)}
+    return Response(content=json.dumps(snap, default=str).encode("utf-8"), media_type="application/json")
+
+
+@app.get("/api/rc")
+def api_rc():
+    # Corredoras: puntaje por alerta y su resultado medido hacia adelante (core/forward_eval.py, solo lectura, no decide nada).
+    from core.forward_eval import runner_snapshot
+    try:
+        snap = runner_snapshot()
+    except Exception as e:                                       # la pestana nunca debe romper el dashboard
+        snap = {"available": False, "error": str(e)}
+    return Response(content=json.dumps(snap, default=str).encode("utf-8"), media_type="application/json")
+
+
+@app.get("/api/tr")
+def api_tr():
+    # Rastro de billeteras: compras de las billeteras de la lista y de un control, medidas hacia adelante (core/forward_eval.py, solo lectura).
+    from core.forward_eval import trail_snapshot
+    try:
+        snap = trail_snapshot()
+    except Exception as e:
         snap = {"available": False, "error": str(e)}
     return Response(content=json.dumps(snap, default=str).encode("utf-8"), media_type="application/json")
 

@@ -64,6 +64,38 @@ AT_TAB_HTML = """  <div class="mtab" id="mtab-at" hidden>
   </div>
 """
 
+RC_TAB_HTML = """  <div class="mtab" id="mtab-rc" hidden>
+    <h2 style="margin-top:6px">Corredoras: las alertas con mayor puntaje (papel)</h2>
+    <details class="info"><summary>C&oacute;mo funciona y qu&eacute; esperar</summary>
+      <p>Cada alerta nueva de Robinhood recibe un <b>puntaje de "corredora"</b> calculado solo con lo que se sab&iacute;a <b>antes</b> de la alerta: sus datos (win-rate de las billeteras, historial del creador, puntaje de ML...) y la <b>cinta previa del token</b> (cu&aacute;ntos compradores distintos, cu&aacute;nto compraron, si una sola billetera concentra las compras, cu&aacute;nto subi&oacute; el precio). El modelo se entren&oacute; con 3.421 posiciones de 6 d&iacute;as anteriores.</p>
+      <p><b>Lo que mostr&oacute; el estudio</b> (entrenar en un per&iacute;odo y evaluar en el otro, en ambos sentidos): el <b>2% mejor</b> (unas 24 alertas por d&iacute;a) llega a 3x el 24&ndash;27% de las veces, contra ~10,6% de base, y rindi&oacute; positivo con una salida amplia. <b>Pero es un resultado d&eacute;bil</b> (el intervalo apenas toca 0) y no est&aacute; probado hacia adelante: por eso ac&aacute; <b>solo se mide, no decide nada</b>. Las alertas puntuadas son solo las posteriores al 21-sep 22:55 UTC.</p>
+      <p><b>C&oacute;mo se mide:</b> entrada 2 s despu&eacute;s de la alerta y salida amplia (stop 25% hasta armar a 1,5x, 50% a 2x, trailing 35%, m&aacute;ximo 1 h) con 2% de costo de ida y vuelta, sin deslizamiento de salida (optimista: importan las diferencias entre grupos). <b>Regla para creerle</b> (fijada antes de ver datos): 100 o m&aacute;s alertas del top 2% medidas, acierto de 3x de al menos 20% y retorno medio positivo con IC95 que no cruza 0.</p>
+    </details>
+    <div class="stats" id="rc-cards"></div>
+    <h2>Resultado por grupo (alertas ya medidas: pasaron m&aacute;s de 1 h)</h2>
+    <table><thead><tr><th>Grupo</th><th>Puntuadas</th><th>Medidas</th><th>Llegan a 3x</th><th>Retorno medio (&plusmn;IC95)</th><th>% que gana</th></tr></thead><tbody id="rc-body"></tbody></table>
+    <h2>&Uacute;ltimas alertas puntuadas</h2>
+    <table><thead><tr><th>Hace</th><th>Alerta</th><th>Token</th><th>Puntaje</th><th>Grupo</th><th>Resultado</th></tr></thead><tbody id="rc-recent"></tbody></table>
+  </div>
+"""
+
+TR_TAB_HTML = """  <div class="mtab" id="mtab-tr" hidden>
+    <h2 style="margin-top:6px">Billeteras con rastro (papel)</h2>
+    <details class="info"><summary>C&oacute;mo se eligieron y qu&eacute; esperar</summary>
+      <p>Se buscaron billeteras que compran <b>tokens que despu&eacute;s corren</b> (llegan a 3x en 1 h desde su compra + 5 s de retraso) <b>mucho m&aacute;s seguido</b> que el resto, con datos del 13 al 20 de septiembre (1,2 millones de operaciones, solo curvas en ETH). Requisitos: al menos 15 tokens comprados, cota inferior de Wilson mayor a 1,5 veces la base (7,8%), sin bots, y <b>que entren 20 s o m&aacute;s despu&eacute;s del lanzamiento</b> (mediana): m&aacute;s de un tercio de las "buenas" entraban en el primer segundo (creadores o francotiradores) y no se pueden seguir.</p>
+      <p><b>Honestidad:</b> en el estudio, las elegidas con un per&iacute;odo dieron solo un poco mejor en el siguiente (11% contra 8% de base, 30 operaciones: no concluyente) y muchas billeteras dejan de operar. Por eso ac&aacute; se registra <b>cada compra nueva</b> de estas billeteras y se mide qu&eacute; habr&iacute;a pasado <b>siguiendo 5 s despu&eacute;s</b>, contra un <b>control</b> (1 de cada 97 compras de otras billeteras). Todo lo posterior al 20-sep 17:38 UTC es fuera de muestra. <b>Solo mide; no opera.</b></p>
+      <p><b>Se cuenta UN evento por token</b> (la primera billetera de la lista que entr&oacute;): muchas de estas billeteras compran el mismo token a la vez, y contarlas todas ser&iacute;a repetir un mismo resultado (en la primera hora medida, 602 compras eran solo 29 tokens). <b>Regla para creerle:</b> 100 o m&aacute;s tokens del rastro medidos, que lleguen a 3x al menos 1,5 veces m&aacute;s seguido que el control y con retorno medio positivo con IC95 que no cruza 0 (salida amplia con 2% de costo).</p>
+    </details>
+    <div class="stats" id="tr-cards"></div>
+    <h2>Rastro contra control (una compra por token, ya medida: pasaron m&aacute;s de 1 h)</h2>
+    <table><thead><tr><th>Grupo</th><th>Tokens registrados</th><th>Tokens medidos</th><th>Llegan a 3x</th><th>Retorno medio (&plusmn;IC95)</th><th>% que gana</th></tr></thead><tbody id="tr-body"></tbody></table>
+    <h2>Las billeteras de la lista</h2>
+    <table><thead><tr><th>Billetera</th><th>Tokens (estudio)</th><th>Acierto 3x (estudio)</th><th>Veces la base</th><th>Entra (mediana)</th><th>Compras nuevas (ahora)</th><th>Medidas</th><th>Acierto 3x (ahora)</th><th>Retorno (ahora)</th></tr></thead><tbody id="tr-wallets"></tbody></table>
+    <h2>&Uacute;ltimas compras registradas</h2>
+    <table><thead><tr><th>Hace</th><th>Tipo</th><th>Billetera</th><th>Token</th><th>Estado</th><th>Pico</th><th>Retorno</th></tr></thead><tbody id="tr-recent"></tbody></table>
+  </div>
+"""
+
 MEMES_JS = """
 // ---------- pestanas de la vista de memes
 function showMTab(name) {
@@ -189,4 +221,70 @@ async function loadAt() {
   const c = document.getElementById("mcount-at"); if (c) c.textContent = s.total_events;
 }
 loadAt(); setInterval(loadAt, 60000);
+
+// ---------- corredoras y rastro de billeteras (medicion hacia adelante)
+function fwPct(x) { return x === null || x === undefined ? "--" : (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%"; }
+function fwCls(x) { return x === null || x === undefined ? "" : (x >= 0 ? "pnl-pos" : "pnl-neg"); }
+function fwHit(x) { return x === null || x === undefined ? "--" : (x * 100).toFixed(0) + "%"; }
+function fwWallet(w) { return `<span class="mono" title="${atEsc(w)}">${atEsc(w.slice(0, 6))}&hellip;${atEsc(w.slice(-4))}</span>`; }
+function fwVerdict(v) { const m = {"CUMPLE": ["CUMPLE", "pnl-pos"], "NO CUMPLE": ["NO CUMPLE", "pnl-neg"], "FALTA MUESTRA": ["falta muestra", ""]}[v] || [v, ""]; return `<span class="${m[1]}">${m[0]}</span>`; }
+function fwRes(peak, ret, done) { return done ? `${(peak || 0).toFixed(2)}x pico &middot; <span class="${fwCls(ret)}">${fwPct(ret)}</span>` : '<span style="color:#8b949e">pendiente (1 h)</span>'; }
+async function loadRc() {
+  let s = null;
+  try { s = await (await fetch("/api/rc")).json(); } catch (e) { return; }
+  const cards = document.getElementById("rc-cards");
+  if (!s.available) { cards.innerHTML = sgCard("Corredoras", "sin datos", "todavía no arrancó el servicio hunter-attention"); return; }
+  const g = Object.fromEntries((s.groups || []).map(x => [x.key, x]));
+  const t2 = g.top2 || {n: 0, scored: 0, hit: null, ret: null, ci: null}, all = g.all || {scored: 0};
+  cards.innerHTML =
+    sgCard("Alertas puntuadas", s.total, `${all.scored} con puntaje &middot; ${s.no_tape || 0} sin cinta previa`) +
+    sgCard("Top 2% medidas", `${t2.n} / ${s.config.min_n}`, `${t2.scored || 0} puntuadas en el top 2%`) +
+    sgCard("Llegan a 3x (top 2%)", fwHit(t2.hit), "piso de la regla 20% &middot; base ~10,6%", t2.hit === null ? "" : (t2.hit >= s.config.min_hit ? "pnl-pos" : "pnl-neg")) +
+    sgCard("Retorno medio (top 2%)", fwPct(t2.ret), t2.ci === null || t2.ci === undefined ? "sin medidas" : "&plusmn;" + (t2.ci * 100).toFixed(1) + "% (IC95)", fwCls(t2.ret)) +
+    sgCard("Veredicto", fwVerdict(s.verdict), atEsc(s.detail));
+  const body = document.getElementById("rc-body"); body.innerHTML = "";
+  for (const r of (s.groups || [])) {
+    body.insertAdjacentHTML("beforeend", `<tr><td>${atEsc(r.name)}</td><td>${r.scored}</td><td>${r.n}</td><td>${fwHit(r.hit)}</td>
+      <td class="${fwCls(r.ret)}">${r.n ? fwPct(r.ret) + (r.ci === null || r.ci === undefined ? "" : " &plusmn;" + (r.ci * 100).toFixed(1) + "%") : "--"}</td><td>${fwHit(r.win)}</td></tr>`);
+  }
+  if (!(s.groups || []).length) body.innerHTML = `<tr><td colspan="6" class="empty">Todavía no hay alertas puntuadas.</td></tr>`;
+  const rb = document.getElementById("rc-recent");
+  rb.innerHTML = (s.recent || []).length ? "" : `<tr><td colspan="6" class="empty">Todavía no hay alertas puntuadas.</td></tr>`;
+  for (const e of (s.recent || [])) {
+    rb.insertAdjacentHTML("beforeend", `<tr><td>${sgAgo(e.ms)}</td><td>#${e.alert_id}</td><td class="mono">${atEsc((e.token || "").slice(0, 8))}</td><td>${e.score === null ? "--" : e.score.toFixed(3)}</td>
+      <td>${e.top2 ? "<b>top 2%</b>" : (e.top5 ? "top 5%" : (e.score === null ? atEsc(e.note || "sin puntaje") : "--"))}</td><td>${e.score === null ? "--" : fwRes(e.peak, e.ret, e.resolved)}</td></tr>`);
+  }
+  const c = document.getElementById("mcount-rc"); if (c) c.textContent = s.total;
+}
+async function loadTr() {
+  let s = null;
+  try { s = await (await fetch("/api/tr")).json(); } catch (e) { return; }
+  const cards = document.getElementById("tr-cards");
+  if (!s.available) { cards.innerHTML = sgCard("Rastro", "sin datos", "falta la lista de billeteras o el servicio hunter-attention"); return; }
+  const t = s.stats.trail, k = s.stats.control;
+  cards.innerHTML =
+    sgCard("Billeteras en la lista", s.n_wallets, `armada con datos hasta ${atEsc((s.data_until || "").slice(0, 16).replace("T", " "))} UTC`) +
+    sgCard("Tokens del rastro medidos", `${t.n} / ${s.config.min_n}`, `${s.total.trail} tokens distintos (${s.n_events.trail} compras de la lista) &middot; ${s.total.control} de control`) +
+    sgCard("Llegan a 3x", `${fwHit(t.hit)} vs ${fwHit(k.hit)}`, "rastro vs control &middot; la regla pide 1,5 veces o m&aacute;s", t.hit === null || k.hit === null ? "" : (t.hit >= s.config.lift * k.hit ? "pnl-pos" : "pnl-neg")) +
+    sgCard("Retorno medio", `${fwPct(t.ret)} vs ${fwPct(k.ret)}`, "rastro vs control &middot; salida amplia, 2% de costo", fwCls(t.ret)) +
+    sgCard("Veredicto", fwVerdict(s.verdict), atEsc(s.detail));
+  const body = document.getElementById("tr-body"); body.innerHTML = "";
+  for (const [name, r, tot] of [["Rastro (billeteras de la lista)", t, s.total.trail], ["Control (otras billeteras)", k, s.total.control]]) {
+    body.insertAdjacentHTML("beforeend", `<tr><td>${name}</td><td>${tot}</td><td>${r.n}</td><td>${fwHit(r.hit)}</td>
+      <td class="${fwCls(r.ret)}">${r.n ? fwPct(r.ret) + (r.ci === null || r.ci === undefined ? "" : " &plusmn;" + (r.ci * 100).toFixed(1) + "%") : "--"}</td><td>${fwHit(r.win)}</td></tr>`);
+  }
+  const wb = document.getElementById("tr-wallets"); wb.innerHTML = "";
+  for (const w of s.wallets) {
+    wb.insertAdjacentHTML("beforeend", `<tr><td>${fwWallet(w.wallet)}</td><td>${w.tokens}</td><td>${fwHit(w.p)}</td><td>${w.lift.toFixed(1)}x</td><td>${Math.round(w.med_entry_s)} s</td>
+      <td>${w.f_events}</td><td>${w.f_done}</td><td>${fwHit(w.f_hit)}</td><td class="${fwCls(w.f_ret)}">${fwPct(w.f_ret)}</td></tr>`);
+  }
+  const rb = document.getElementById("tr-recent");
+  rb.innerHTML = s.recent.length ? "" : `<tr><td colspan="7" class="empty">Todavía no hay compras registradas.</td></tr>`;
+  for (const e of s.recent) {
+    rb.insertAdjacentHTML("beforeend", `<tr><td>${sgAgo(e.ms)}</td><td>${e.kind === "trail" ? "<b>rastro</b>" : "control"}</td><td>${fwWallet(e.wallet)}</td><td class="mono">${atEsc((e.token || "").slice(0, 8))}</td>
+      <td>${e.status === "done" ? "medida" : (e.status === "no_entry" ? "sin entrada" : "pendiente")}</td><td>${e.peak === null ? "--" : e.peak.toFixed(2) + "x"}</td><td class="${fwCls(e.ret)}">${fwPct(e.ret)}</td></tr>`);
+  }
+  const c = document.getElementById("mcount-tr"); if (c) c.textContent = s.total.trail;
+}
+loadRc(); loadTr(); setInterval(loadRc, 60000); setInterval(loadTr, 60000);
 """
