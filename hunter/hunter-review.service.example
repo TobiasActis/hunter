@@ -1,0 +1,13 @@
+# Revision diaria (papel): corre daily_review.py y guarda el reporte en data/reports/AAAA-MM-DD.txt. La dispara hunter-review.timer a las 00:15 UTC.
+#   sudo cp hunter-review.service.example /etc/systemd/system/hunter-review.service && sudo systemctl daemon-reload
+# OJO con el escape: en systemd "$$" es un "$" literal y "%%" es un "%" literal. La version anterior tenia "366(date ...)" en vez de "$$(date ...)" y fallaba al instante (exit 2): el reporte nunca se genero hasta 2026-09-21.
+[Unit]
+Description=HUNTER - revision diaria de resultados (guarda un reporte en data/reports)
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hunter
+ExecStart=/bin/sh -c '/home/ubuntu/hunter/venv/bin/python daily_review.py > data/reports/$$(date -u +%%F).txt 2>&1'
+Nice=10
+OOMScoreAdjust=800
