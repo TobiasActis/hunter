@@ -251,3 +251,13 @@ try:
     print(attention_lab.report_text())
 except Exception as e:                                # nunca romper el reporte por esto
     print("(seccion del laboratorio de atencion no disponible:", e, ")")
+
+
+# ------------------------------------- 10) anatomia de las operaciones de memes por version (ganancia media, perdida media, duracion, razones de salida)
+try:
+    import anatomy_review
+    _c10 = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    anatomy_review.main(_c10)
+    _c10.close()
+except Exception as e:                                # nunca romper el reporte por esto
+    print("(seccion de anatomia no disponible:", e, ")")
