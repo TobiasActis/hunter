@@ -57,7 +57,8 @@ TRACK_CHAINS = {"sol": "solana", "base": "base"}                                
 TRACK_MIN_USD = 50.0
 TRACK_MAX_LAG_S = 600.0                                                                       # la lista trae las ultimas 100 operaciones (horas de antiguedad): solo cuentan las de los ultimos 10 min
 CTL_SAMPLE = 4
-SOURCES = ("DEX_BOOST", "DEX_PERFIL", "GECKO_TREND", "CTL", "GMGN_TREND", "GMGN_SMART", "GMGN_KOL", "GMGN_SMARTBUY")
+SMALLCAP_PARAMS = {"interval": "24h", "min_created": "24h", "max_marketcap": 50000, "min_liquidity": 10000, "min_volume": 10000, "order_by": "volume", "direction": "desc"}      # el escaneo de un trader: > 24 h de edad, < $50K de capitalizacion, > $10K de liquidez y de volumen
+SOURCES = ("DEX_BOOST", "DEX_PERFIL", "GECKO_TREND", "CTL", "GMGN_TREND", "GMGN_SMART", "GMGN_SMALLCAP", "GMGN_KOL", "GMGN_SMARTBUY")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS at_events (
@@ -375,7 +376,8 @@ async def fetch_sources(client, gmgn_key=None):
             await asyncio.sleep(7)                                     # ~10 llamadas/min sin clave
     if gmgn_key:
         for gch in GMGN_CHAINS:
-            for source, extra, min_smart in (("GMGN_TREND", {}, None), ("GMGN_SMART", {"order_by": "smart_degen_count", "direction": "desc"}, GMGN_MIN_SMART)):
+            for source, extra, min_smart in (("GMGN_TREND", {}, None), ("GMGN_SMART", {"order_by": "smart_degen_count", "direction": "desc"}, GMGN_MIN_SMART),
+                                             ("GMGN_SMALLCAP", SMALLCAP_PARAMS, None)):
                 try:
                     q = dict({"chain": gch, "interval": "1h", "limit": 50, "timestamp": int(time.time()), "client_id": str(uuid.uuid4())}, **extra)
                     js = await _get(client, GMGN_HOST + "/v1/market/rank", params=q, headers={"X-APIKEY": gmgn_key, "User-Agent": "hunter-paper-lab"})
@@ -383,7 +385,7 @@ async def fetch_sources(client, gmgn_key=None):
                         logger.warning(f"{source} {gch}: respuesta {js.get('code')} {str(js.get('msg') or js.get('message'))[:120]}")
                         continue
                     got = parse_gmgn_rank(js, gch, source, min_smart)
-                    if not got and min_smart is None:                      # tendencia vacia = forma de respuesta distinta a la documentada: dejar la estructura en el log para corregir el parser
+                    if not got and source == "GMGN_TREND":                 # tendencia vacia = forma de respuesta distinta a la documentada: dejar la estructura en el log para corregir el parser
                         logger.warning(f"{source} {gch}: 0 items; respuesta: {json.dumps(js, default=str)[:600]}")
                     events += got
                 except Exception as e:
