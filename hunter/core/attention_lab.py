@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS at_events (
 CREATE INDEX IF NOT EXISTS ix_at_status ON at_events(status);
 CREATE TABLE IF NOT EXISTS at_marks (event_id INTEGER NOT NULL, horizon_s INTEGER NOT NULL, ts_ms INTEGER NOT NULL, price REAL, quote_usd REAL, missed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(event_id, horizon_s));
 CREATE TABLE IF NOT EXISTS at_state (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS at_runner_score (
+    alert_id INTEGER PRIMARY KEY, token TEXT NOT NULL, ts_ms INTEGER, score REAL, top2 INTEGER, top5 INTEGER, feats TEXT, note TEXT
+);
 CREATE TABLE IF NOT EXISTS at_alert_enrich (
     alert_id INTEGER PRIMARY KEY, token TEXT NOT NULL, alert_ms INTEGER, got_ms INTEGER, ok INTEGER NOT NULL, feats TEXT, note TEXT
 );
@@ -495,6 +498,62 @@ async def enrich_alerts(client, key, hunter_db=HUNTER_DB, path=None, max_n=ENRIC
     return n
 
 
+# ------------------------------------------------------------------ puntaje de "corredora" por alerta (MODO SOMBRA: solo guarda, no decide nada; ver core/runner_features.py)
+RUNNER_MODEL = os.path.join("data", "runner_model.joblib")
+RUNNER_MIN_AGE_S = 10                       # se puntua una alerta recien pasados unos segundos, cuando ya se escribieron entry_score & cia
+_runner = {"mtime": None, "bundle": None}
+
+
+def load_runner_model(model_path=None):
+    p = model_path or RUNNER_MODEL
+    try:
+        m = os.path.getmtime(p)
+    except OSError:
+        return None
+    if _runner["mtime"] != (p, m):
+        import joblib
+        _runner["bundle"], _runner["mtime"] = joblib.load(p), (p, m)
+    return _runner["bundle"]
+
+
+def score_runner(hunter_db=HUNTER_DB, path=None, model_path=None, max_n=60, now=None):
+    """Puntua cada alerta NUEVA de Robinhood con el modelo de corredoras y guarda el puntaje con el id de la alerta (para medir despues, sin sesgo, si el 2% mejor rinde). Los rasgos usan solo lo anterior a la alerta:
+    el puntaje es el mismo aunque se calcule unos segundos despues. Empieza desde la ultima alerta existente (no rellena el pasado)."""
+    b = load_runner_model(model_path)
+    if b is None or not os.path.exists(hunter_db):
+        return 0
+    from datetime import datetime, timedelta, timezone
+    from core import runner_features as rf
+    with conn_ctx(path) as c:
+        r = c.execute("SELECT v FROM at_state WHERE k='runner_last_alert'").fetchone()
+        last = int(r["v"]) if r else None
+    h = sqlite3.connect(f"file:{hunter_db}?mode=ro", uri=True, timeout=10)
+    n = 0
+    try:
+        if last is None:
+            last = h.execute("SELECT COALESCE(MAX(id), 0) FROM stampede_alerts WHERE chain='robinhood'").fetchone()[0]
+            with conn_ctx(path) as c:
+                c.execute("INSERT OR REPLACE INTO at_state (k, v) VALUES ('runner_last_alert', ?)", (str(last),))
+            return 0
+        cutoff = ((now or datetime.now(timezone.utc)) - timedelta(seconds=RUNNER_MIN_AGE_S)).isoformat()
+        alerts = h.execute("SELECT id, token_address, triggered_at FROM stampede_alerts WHERE chain='robinhood' AND id > ? AND triggered_at <= ? ORDER BY id LIMIT ?", (last, cutoff, max_n)).fetchall()
+        for aid, tok, trig in alerts:
+            af, tf = rf.alert_features(h, aid), rf.tape_features(h, tok, trig)
+            vec = rf.feature_vector(af, tf)
+            if vec is None:
+                row = (aid, tok, int(time.time() * 1000), None, None, None, None, "sin cinta previa (< 2 operaciones)")
+            else:
+                s = float(b["model"].predict_proba(vec)[0, 1])
+                row = (aid, tok, int(time.time() * 1000), s, int(s >= b["thr_top2"]), int(s >= b["thr_top5"]), json.dumps({**af, **tf}, default=float), None)
+            with conn_ctx(path) as c:
+                c.execute("INSERT OR REPLACE INTO at_runner_score (alert_id, token, ts_ms, score, top2, top5, feats, note) VALUES (?,?,?,?,?,?,?,?)", row)
+                c.execute("INSERT OR REPLACE INTO at_state (k, v) VALUES ('runner_last_alert', ?)", (str(aid),))
+            n += 1
+    finally:
+        h.close()
+    return n
+
+
 async def work_once(client, now_ms):
     with conn_ctx() as c:
         pend = [dict(r) for r in c.execute("SELECT * FROM at_events WHERE status='pending' ORDER BY id LIMIT 300")]
@@ -526,6 +585,7 @@ async def run():
                 await work_once(client, int(time.time() * 1000))
                 if key:
                     await enrich_alerts(client, key)
+                score_runner()
             except Exception:
                 logger.exception("Atencion: error en el ciclo, reintenta")
             await asyncio.sleep(WORK_EVERY_S)
