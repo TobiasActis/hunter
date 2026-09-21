@@ -400,8 +400,8 @@ async def fetch_sources(client, gmgn_key=None):
                         logger.warning(f"{source} {gch}: respuesta {js.get('code')} {str(js.get('msg') or js.get('message'))[:120]}")
                         continue
                     got = parse_gmgn_track(js, gch, source, now_s=time.time())
-                    if not got and source == "GMGN_KOL":
-                        logger.warning(f"{source} {gch}: 0 compras; respuesta: {json.dumps(js, default=str)[:500]}")
+                    if not got and source == "GMGN_KOL" and not ((js.get("data") or {}).get("list") or ((js.get("data") or {}).get("data") or {}).get("list")):
+                        logger.warning(f"{source} {gch}: lista vacia o de otra forma: {json.dumps(js, default=str)[:300]}")      # 0 compras frescas es normal (filtro de 10 min); lista vacia no
                     events += got
                 except Exception as e:
                     logger.warning(f"{source} {gch}: {e}")
