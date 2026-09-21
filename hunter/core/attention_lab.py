@@ -49,6 +49,10 @@ WORK_EVERY_S = 20
 GECKO_NETS = {"solana": "solana", "base": "base", "eth": "ethereum"}                        # red de GeckoTerminal -> chainId de DexScreener
 GMGN_CHAINS = {"sol": "solana", "robinhood": "robinhood"}                                    # cadena de GMGN -> chainId de DexScreener
 GMGN_MIN_SMART = 3
+GMGN_META_KEYS = ("rank", "hot_level", "smart_degen_count", "renowned_count", "rug_ratio", "volume", "liquidity", "holder_count", "launchpad_platform", "is_wash_trading",       # "senales de meme mala": las que el trader mira a mano
+                  "top_10_holder_rate", "bundler_rate", "rat_trader_amount_rate", "sniper_count", "dev_team_hold_rate", "entrapment_ratio", "bot_degen_count", "bot_degen_rate",
+                  "top70_sniper_hold_rate", "renounced_mint", "renounced_freeze_account", "is_honeypot", "buy_tax", "sell_tax", "burn_status", "lock_percent",
+                  "market_cap", "swaps", "buys", "sells", "price_change_percent1m", "price_change_percent5m", "price_change_percent1h", "creation_timestamp", "open_timestamp", "initial_liquidity")
 TRACK_CHAINS = {"sol": "solana", "base": "base"}                                             # /v1/user/kol y /v1/user/smartmoney solo cubren sol/bsc/base/eth (NO Robinhood)
 TRACK_MIN_USD = 50.0
 TRACK_MAX_LAG_S = 600.0                                                                       # la lista trae las ultimas 100 operaciones (horas de antiguedad): solo cuentan las de los ultimos 10 min
@@ -159,7 +163,7 @@ def parse_gmgn_rank(payload, gmgn_chain, source, min_smart=None):
         smart = it.get("smart_degen_count") or 0
         if min_smart is not None and smart < min_smart:
             continue
-        meta = {k: it.get(k) for k in ("rank", "hot_level", "smart_degen_count", "renowned_count", "rug_ratio", "volume", "liquidity", "holder_count", "launchpad_platform", "is_wash_trading") if k in it}
+        meta = {k: it.get(k) for k in GMGN_META_KEYS if k in it}
         out.append({"source": source, "chain": chain, "token": norm_token(chain, addr), "meta": meta})
     return out
 

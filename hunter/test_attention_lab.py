@@ -45,6 +45,9 @@ sm = al.parse_gmgn_rank(gm, "robinhood", "GMGN_SMART", al.GMGN_MIN_SMART)
 check("GMGN smart money: solo con >= 3 smart_degen", len(sm) == 1 and sm[0]["meta"]["smart_degen_count"] == 5)
 check("GMGN: cadena no soportada -> nada", al.parse_gmgn_rank(gm, "arc", "GMGN_TREND") == [])
 gm2 = {"code": 0, "data": {"code": 0, "data": {"rank": [{"chain": "robinhood", "address": EVM, "symbol": "FTD", "smart_degen_count": 4, "liquidity": 17468.6}]}}}
+gm3 = {"data": {"data": {"rank": [{"address": EVM, "bundler_rate": 0.32, "top_10_holder_rate": 0.41, "dev_team_hold_rate": 0.05, "sniper_count": 7, "rug_ratio": 0.2, "campo_raro": 1}]}}}
+mm = al.parse_gmgn_rank(gm3, "robinhood", "GMGN_TREND")[0]["meta"]
+check("GMGN: guarda las senales de 'meme mala' (bundles, top 10, equipo del dev, francotiradores) y no campos ajenos", mm.get("bundler_rate") == 0.32 and mm.get("top_10_holder_rate") == 0.41 and mm.get("dev_team_hold_rate") == 0.05 and mm.get("sniper_count") == 7 and "campo_raro" not in mm)
 check("GMGN: respuesta REAL con un nivel de anidado de mas (data.data.rank)", len(al.parse_gmgn_rank(gm2, "robinhood", "GMGN_TREND")) == 1 and len(al.parse_gmgn_rank(gm2, "robinhood", "GMGN_SMART", 3)) == 1)
 
 tr = {"code": 0, "data": {"code": 0, "data": {"list": [
