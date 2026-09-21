@@ -242,3 +242,12 @@ try:
     watchlist_review.main(sqlite3.connect(f"file:{DB}?mode=ro", uri=True))          # conexion propia: la de arriba ya se cerro
 except Exception as e:                                # nunca romper el reporte por esto
     print("(seccion de la lista de billeteras no disponible:", e, ")")
+
+
+# ------------------------------------- 9) laboratorio de atencion: tokens que aparecen en listas publicas (DexScreener, GeckoTerminal, GMGN), medidos hacia adelante en papel
+print("\n", "=" * 72, "\n9) LABORATORIO DE ATENCION (papel; listas publicas de tokens, con costos reales de pool)\n", "=" * 72, sep="")
+try:
+    from core import attention_lab
+    print(attention_lab.report_text())
+except Exception as e:                                # nunca romper el reporte por esto
+    print("(seccion del laboratorio de atencion no disponible:", e, ")")

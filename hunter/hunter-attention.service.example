@@ -1,0 +1,19 @@
+# Servicio del laboratorio de atencion (PAPEL): registra tokens que aparecen en listas publicas (DexScreener, GeckoTerminal y, con clave, GMGN) y mide su precio despues. Solo lee APIs publicas; NO opera.
+# Es independiente de hunter.service (base propia data/attention.db): instalarlo o reiniciarlo no toca el resto.
+#   sudo cp hunter-attention.service.example /etc/systemd/system/hunter-attention.service && sudo systemctl daemon-reload && sudo systemctl enable --now hunter-attention
+# La clave de GMGN (opcional) va en ~/hunter/.gmgn_env (chmod 600), NUNCA en este archivo ni en un chat: se carga con setup_gmgn.sh.
+[Unit]
+Description=HUNTER - laboratorio de atencion (papel)
+After=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hunter
+EnvironmentFile=-/home/ubuntu/hunter/.gmgn_env
+ExecStart=/home/ubuntu/hunter/venv/bin/python -m core.attention_lab
+Restart=always
+RestartSec=15
+MemoryMax=150M
+
+[Install]
+WantedBy=multi-user.target
