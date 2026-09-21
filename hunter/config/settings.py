@@ -84,10 +84,16 @@ SIM_EXIT_LATENCY_S = 1.5        # segundos entre la decisión de vender y el lle
 # 629 posiciones reales, las entradas con llenado >1.15x el precio de la alerta
 # (219) perdieron ~$2,800 y las demás (410) solo ~$360, contra -$3,156 del total.
 MAX_CHASE_RATIO = 1.15
-# El filtro de ML (core/entry_filter.py) NO mostró ventaja en vivo (AUC 0.55 y
-# score alto = más desplomes): en modo sombra calcula y guarda el score de cada
-# alerta pero NO decide -- se opera todo, y se sigue midiendo por si mejora.
-ENTRY_FILTER_ENFORCE = False
+# El filtro de ML (core/entry_filter.py) NO mostró ventaja en vivo cuando se probo por
+# primera vez (AUC 0.55 y score alto = más desplomes): estuvo en modo sombra. ACTIVADO
+# 2026-09-21 (v6) porque cumplio el criterio fijado de antemano con datos limpios (solo
+# curvas en ETH): sobre 1.860 posiciones de la v5, 'pass' n=1061 -$0.71/trade (+-0.90) contra
+# 'skip' n=799 -$3.32 (+-1.14): diferencia +$2.62, IC95 [+1.16, +4.07], ambas mitades
+# positivas (+3.32 / +1.89). Operar solo 'pass' habria sido -$748 en vez de -$3.286.
+# OJO: 'pass' sigue algo negativo (-1.4% del monto, IC95 incluye 0): reduce la perdida,
+# no garantiza ganancia. Las descartadas ('skip') no abren posicion ni notifican, salvo el
+# EXPLORATION_RATE (10%) al azar, que sigue midiendo lo descartado. False = modo sombra.
+ENTRY_FILTER_ENFORCE = True
 
 # --- Ajustes 2026-09-20 (v4): salida por presion de venta ---
 # Vender TODO lo que quede cuando ya vendieron K compradores DISTINTOS despues de nuestro llenado.
