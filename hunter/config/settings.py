@@ -103,3 +103,10 @@ ENTRY_FILTER_ENFORCE = True
 # venta generica, no una senal de "wallets buenas". Se adopto con 159 y no con las 300 fijadas de
 # antemano (simulacion de papel, riesgo real cero, evidencia consistente en 3 muestras). 0 = apagado.
 SELL_PRESSURE_EXIT_K = 3
+
+# --- Ajuste 2026-09-21 (v7): la salida por presion de venta NO actua durante los primeros N segundos ---
+# Anatomia de la v5 (1876 operaciones): gana 33% con +$12.9 de media y pierde -$8.9 (razon 1.44; con 33% haria falta 2.05); el 83% cierra por presion de venta, mediana de duracion 25 s: se cerraba
+# casi todo enseguida, pagando ~2% de costo. Replay sobre trayectorias reales, dos periodos independientes (anterior v2-v4 n=1758 y v5 n=1876), diferencia vs la regla anterior (por operacion):
+#   ignorar los primeros 30 s: +0.58 (IC95 +0.07..+1.08) y +0.61 (+0.19..+1.04) | 45 s: +0.91 (+0.31..+1.50) y +0.92 (+0.41..+1.44) | 60 s: +0.81 (+0.15..+1.48) y +1.17 (+0.57..+1.76)
+#   | 90 s: +0.28 (-0.46..+1.03) y +1.46 (+0.76..+2.16); ambas mitades positivas en cada caso. Se elige 45 s (el punto conservador donde los dos periodos coinciden). 0 = como en la v4/v5.
+SELL_PRESSURE_MIN_AGE_S = 45

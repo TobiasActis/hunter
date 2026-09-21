@@ -1116,9 +1116,10 @@ def _build_api_data() -> dict:
             ("v4", "v4 - + salida por presión de venta", "sim_v4_since"),
             ("v5", "v5 - tenencia máxima 10 min + stop-loss 15%", "sim_v5_since"),
             ("v6", "v6 - + filtro de ML (solo opera las que pasan)", "sim_v6_since"),
+            ("v7", "v7 - + presión de venta solo después de 45 s", "sim_v7_since"),
         ]
         marks = {r["key"]: r["value"] for r in conn.execute(
-            "SELECT key, value FROM dashboard_settings WHERE key IN ('sim_v2_since','sim_v3_since','sim_v4_since','sim_v5_since','sim_v6_since')")}
+            "SELECT key, value FROM dashboard_settings WHERE key IN ('sim_v2_since','sim_v3_since','sim_v4_since','sim_v5_since','sim_v6_since','sim_v7_since')")}
         bounds = [(vid, label, marks.get(key)) for vid, label, key in VERSIONS if marks.get(key)]
         versions = []
         if bounds:

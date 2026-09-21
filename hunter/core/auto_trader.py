@@ -79,7 +79,7 @@ from core.db import (
 )
 from core.paper_trading import open_position, sell_partial, close_position, DEFAULT_POSITION_USD
 from core.token_price import fetch_current_price
-from config.settings import SELL_PRESSURE_EXIT_K
+from config.settings import SELL_PRESSURE_EXIT_K, SELL_PRESSURE_MIN_AGE_S
 
 logger = logging.getLogger("hunter.auto_trader")
 
@@ -149,6 +149,17 @@ async def auto_open_on_alert(chain: str, token_address: str, alert_id: int | Non
         )
 
 
+def _seconds_since(iso_ts) -> float:
+    """Segundos desde un instante ISO (con o sin zona: sin zona se asume UTC). Ante cualquier problema devuelve un valor grande: la regla actua como antes."""
+    try:
+        t = datetime.fromisoformat(iso_ts)
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - t).total_seconds()
+    except (TypeError, ValueError):
+        return 1e9
+
+
 async def _manage_open_position(position) -> None:
     """Un ciclo de vida completo por posición abierta: actualiza el
     máximo histórico, y decide si toca cortar pérdida, tomar ganancia,
@@ -163,7 +174,8 @@ async def _manage_open_position(position) -> None:
     # Salida por presión de venta (v4, 2026-09-20): si ya vendieron K compradores
     # distintos desde nuestro llenado, se vende todo lo que quede -- ver el
     # razonamiento y los números en config/settings.py::SELL_PRESSURE_EXIT_K.
-    if SELL_PRESSURE_EXIT_K > 0 and position["opened_at"]:
+    # v7 (2026-09-21): solo actua pasados SELL_PRESSURE_MIN_AGE_S segundos desde el llenado (el conteo de vendedores distintos es acumulado desde el llenado: igual que en el estudio).
+    if SELL_PRESSURE_EXIT_K > 0 and position["opened_at"] and _seconds_since(position["opened_at"]) >= SELL_PRESSURE_MIN_AGE_S:
         with get_conn() as conn:
             sellers = count_distinct_sellers_since(
                 conn, position["chain"], position["token_address"], position["opened_at"])
