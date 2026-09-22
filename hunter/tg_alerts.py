@@ -27,6 +27,8 @@ import urllib.request
 
 BOT_USERNAME = "kotte_memescan_bot"
 B58 = r"[1-9A-HJ-NP-Za-km-z]{32,44}"
+RECONCILE_EVERY_S = 300    # cada 5 min, releer el historial y rescatar lo que el evento en vivo se haya perdido (medido 2026-09-22: se perdia ~35% de los mensajes)
+RECONCILE_LIMIT = 30       # mensajes recientes a revisar en cada pasada (de sobra: el bot no manda tantos en 5 min)
 
 
 def parse_alert(text: str):
@@ -57,6 +59,40 @@ def post_alert(base_url: str, user: str, password: str, payload: dict) -> bool:
         return r.status == 200
 
 
+def make_handler(post_fn, base: str, user: str, pw: str, seen_ids: set):
+    """Fabrica el manejador de un mensaje: descarta duplicados (por id, via `seen_ids`), y si es una alerta simulable la manda al dashboard con `post_fn`
+    (firma como post_alert). Separado de listen() para poder probarlo sin una conexion real de Telegram."""
+
+    async def handle(msg_id: int, date, text: str, live: bool):
+        if msg_id in seen_ids:
+            return False
+        seen_ids.add(msg_id)
+        tag = "" if live else " (rescatado)"
+        a = parse_alert(text or "")
+        if not a:
+            print(f"[{date:%H:%M:%S}] mensaje del bot sin alerta simulable (se ignora){tag}", flush=True)
+            return True
+        payload = {"mint": a["mint"], "ts_ms": int(date.timestamp() * 1000), "hours": a["hours"], "symbol": a["symbol"]}
+        try:
+            ok = await asyncio.get_event_loop().run_in_executor(None, post_fn, base, user, pw, payload)
+            print(f"[{date:%H:%M:%S}] alerta {a['symbol']} {a['mint'][:8]}… ({a['hours']} h) -> {'enviada' if ok else 'rechazada'}{tag}", flush=True)
+        except Exception as e:
+            print(f"[{date:%H:%M:%S}] no se pudo enviar al dashboard: {e}{tag}", flush=True)
+        return True
+
+    return handle
+
+
+async def reconcile_once(iter_messages, handle):
+    """Una pasada de la red de seguridad: relee los mensajes recientes (`iter_messages`, un iterable async de objetos con .id/.date/.raw_text) y los pasa
+    por `handle` (que ya deduplica por id); live=False para distinguirlos en el log. Devuelve cuantos eran nuevos (no vistos por el evento en vivo)."""
+    nuevos = 0
+    async for m in iter_messages:
+        was_new = await handle(m.id, m.date, getattr(m, "raw_text", "") or "", False)
+        nuevos += 1 if was_new else 0
+    return nuevos
+
+
 async def listen(login_only: bool):
     try:
         from telethon import TelegramClient, events
@@ -85,19 +121,27 @@ async def listen(login_only: bool):
         await client.disconnect()
         return
 
+    seen_ids: set = set()                                                     # ids de mensaje ya procesados (por el evento en vivo o por la reconciliacion), para no mandar la misma alerta dos veces
+    bot_entity = await client.get_entity(BOT_USERNAME)
+    handle = make_handler(post_alert, base, user, pw, seen_ids)
+
     @client.on(events.NewMessage(from_users=BOT_USERNAME))
     async def on_msg(event):
-        a = parse_alert(event.raw_text or "")
-        if not a:
-            print(f"[{event.date:%H:%M:%S}] mensaje del bot sin alerta simulable (se ignora)", flush=True)
-            return
-        payload = {"mint": a["mint"], "ts_ms": int(event.date.timestamp() * 1000), "hours": a["hours"], "symbol": a["symbol"]}
-        try:
-            ok = await asyncio.get_event_loop().run_in_executor(None, post_alert, base, user, pw, payload)
-            print(f"[{event.date:%H:%M:%S}] alerta {a['symbol']} {a['mint'][:8]}… ({a['hours']} h) -> {'enviada' if ok else 'rechazada'}", flush=True)
-        except Exception as e:
-            print(f"[{event.date:%H:%M:%S}] no se pudo enviar al dashboard: {e}", flush=True)
+        await handle(event.id, event.date, event.raw_text or "", True)
 
+    async def reconcile_loop():
+        """Red de seguridad: el evento en vivo de Telethon a veces se pierde un mensaje (medido 2026-09-22: ~35%, probablemente micro-desconexiones).
+        Cada RECONCILE_EVERY_S relee los ultimos RECONCILE_LIMIT mensajes del bot y rescata los que el evento en vivo no haya visto."""
+        while True:
+            await asyncio.sleep(RECONCILE_EVERY_S)
+            try:
+                n = await reconcile_once(client.iter_messages(bot_entity, limit=RECONCILE_LIMIT), handle)
+                if n:
+                    print(f"[reconciliacion] {n} mensaje(s) rescatado(s) que el evento en vivo no habia visto", flush=True)
+            except Exception as e:
+                print(f"[reconciliacion] error (se reintenta en {RECONCILE_EVERY_S}s): {e}", flush=True)
+
+    asyncio.create_task(reconcile_loop())
     await client.run_until_disconnected()
 
 
