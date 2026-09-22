@@ -5,8 +5,10 @@ pero no trae winrate ni etiquetas):
   1) CRIBADO barato: wallet_profits (30d) en lotes de 100 para TODAS las candidatas -> rendimiento = ganancia realizada / costo del periodo, filtra por actividad minima.
   2) DETALLE de las mejores: wallet_stats de a una (1 req/s) para las que pasaron el cribado -> acierto, distribucion de resultados, etiquetas de GMGN, Twitter; excluye "arbitrager" (son bots de velocidad, no
      traders que se puedan copiar) y avisa si crea muchos tokens (podria ser un deployer, no solo un trader).
-Solo lee y muestra un reporte (y lo guarda en data/wallet_scout_last.json): no agrega nada a watch_manual.json por si solo. Correr en el servidor (necesita GMGN_API_KEY):
-    ./venv/bin/python wallet_scout.py [--min-trades 15] [--min-pnl 0.30] [--min-winrate 0.45] [--top 20] [--chain sol]
+Por defecto solo lee y muestra un reporte (y lo guarda en data/wallet_scout_last.json): no toca watch_manual.json. Con --auto-add, agrega a watch_manual.json (sin repetir las que ya estan) hasta --max-add de las
+mejores rankeadas, para que el dueno no tenga que pedirlo cada vez -- lo corre solo, sin supervision, el temporizador wallet-scout.timer (cada 12 h; ver wallet-scout.service.example).
+Correr en el servidor (necesita GMGN_API_KEY):
+    ./venv/bin/python wallet_scout.py [--min-trades 15] [--min-pnl 0.30] [--min-winrate 0.45] [--top 20] [--chain sol] [--auto-add] [--max-add 3]
 """
 import argparse
 import asyncio
@@ -21,7 +23,8 @@ import httpx
 from core import attention_lab as al
 
 
-async def _with_retry(fn, tries=5, wait=3.0):
+async def _with_retry(fn, tries=8, wait=5.0):
+    """El servicio de fondo (hunter-attention) usa la MISMA clave sin parar, asi que un 429 aca es normal: espera y reintenta antes de darse por vencido."""
     for i in range(tries):
         try:
             return await fn()
@@ -32,6 +35,38 @@ async def _with_retry(fn, tries=5, wait=3.0):
 
 GMGN_HOST = "https://openapi.gmgn.ai"
 EXCLUDE_TAGS = {"arbitrager"}
+WATCH_JSON = os.path.join("data", "watch_manual.json")
+
+
+def already_watched(path=WATCH_JSON):
+    try:
+        return {w["wallet"] for w in json.load(open(path, encoding="utf-8"))["wallets"]}
+    except Exception:
+        return set()
+
+
+def auto_add(ranked, chain_code, max_add, path=WATCH_JSON):
+    """Agrega a watch_manual.json hasta max_add de las rankeadas que todavia no estaban. Devuelve cuantas agrego."""
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        data = {"wallets": []}
+    have = {w["wallet"] for w in data["wallets"]}
+    added = 0
+    for s in ranked:
+        if added >= max_add or s["wallet"] in have:
+            continue
+        flag = " OJO: crea muchos tokens (podria ser deployer, no solo trader)." if (s["created_tokens"] or 0) > 50 else ""
+        note = (f"Encontrada sola por wallet_scout.py --auto-add. GMGN wallet_profits 30d: realized_profit ${s['profit_usd']:+,.0f} sobre costo ${s['cost_usd']:,.0f} "
+                f"({s['pnl']*100:+.1f}%). wallet_stats: acierto {(s['winrate'] or 0)*100:.0f}% en {s['tokens']} tokens ({s['gt_5x']} con >5x, {s['big_loss']} con <-50%), "
+                f"{s['buy']+s['sell']} operaciones, tenencia media {s['avg_hold_h']:.1f} h, cuenta de {s['account_age_d']:.0f} dias. Tags de GMGN: {s['tags']}.{flag} "
+                f"Sin revisar a mano: fijarse que no sea la misma operacion que otra ya en la lista (misma fund_from_address).")
+        data["wallets"].append({"wallet": s["wallet"], "gmgn_chain": chain_code, "label": "auto: wallet_scout.py", "added_at": datetime.now(timezone.utc).isoformat(), "note": note})
+        have.add(s["wallet"])
+        added += 1
+    if added:
+        json.dump(data, open(path, "w", encoding="utf-8"), indent=1)
+    return added
 
 
 def candidate_wallets(chain="solana", path=None):
@@ -100,6 +135,8 @@ async def main():
     ap.add_argument("--min-winrate", type=float, default=0.45)
     ap.add_argument("--top", type=int, default=20)
     ap.add_argument("--detail-n", type=int, default=40, help="cuantas de la etapa 1 (por pnl) pasan a la etapa 2 de detalle")
+    ap.add_argument("--auto-add", action="store_true", help="agrega a watch_manual.json las mejores rankeadas que todavia no estaban (sin supervision)")
+    ap.add_argument("--max-add", type=int, default=3)
     a = ap.parse_args()
     key = os.environ.get("GMGN_API_KEY")
     if not key:
@@ -111,19 +148,22 @@ async def main():
     print(f"candidatas (vistas como KOL o smart money en {chain_str}): {len(wallets)}")
     if not wallets:
         return
+    watched = already_watched()
     async with httpx.AsyncClient() as client:
         screened = await screen_profits(client, key, a.chain, wallets)
         pre = sorted(((w, s) for w, s in screened.items() if s["pnl"] is not None and s["buy"] + s["sell"] >= a.min_trades and s["pnl"] >= a.min_pnl), key=lambda x: -x[1]["pnl"])
-        print(f"pasan el cribado (>= {a.min_trades} operaciones, rendimiento 30d >= {a.min_pnl:.0%}): {len(pre)} de {len(screened)} con datos")
+        print(f"pasan el cribado (>= {a.min_trades} operaciones, rendimiento 30d >= {a.min_pnl:.0%}): {len(pre)} de {len(screened)} con datos ({sum(1 for w, _ in pre if w in watched)} ya en rastreo)")
         details = {}
         for w, _ in pre[:a.detail_n]:
+            if w in watched:                                          # ya la seguimos: no gastar una llamada mas en ella
+                continue
             try:
                 d = await detail_stats(client, key, a.chain, w)
                 if d:
                     details[w] = d
             except Exception as e:
                 print(f"  (detalle de {w[:10]} fallo: {e})")
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(4.0)
     ranked = []
     for w, s in pre:
         d = details.get(w)
@@ -140,6 +180,9 @@ async def main():
     out = {"generated_at": datetime.now(timezone.utc).isoformat(), "chain": chain_str, "candidates_seen": len(wallets), "screened": len(pre), "detailed": len(details), "ranked": ranked}
     json.dump(out, open("data/wallet_scout_last.json", "w", encoding="utf-8"), indent=1, default=str)
     print(f"\nguardado data/wallet_scout_last.json ({len(ranked)} rankeadas)")
+    if a.auto_add:
+        n = auto_add(ranked, a.chain, a.max_add)
+        print(f"agregadas a watch_manual.json: {n}" if n else "nada nuevo para agregar (ya estaban todas o ninguna califico)")
 
 
 if __name__ == "__main__":

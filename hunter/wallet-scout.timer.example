@@ -1,0 +1,12 @@
+# Dispara wallet-scout.service cada 12 h (con un margen aleatorio para no coincidir siempre con otras tareas).
+#   sudo cp wallet-scout.timer.example /etc/systemd/system/wallet-scout.timer && sudo systemctl daemon-reload && sudo systemctl enable --now wallet-scout.timer
+[Unit]
+Description=HUNTER - buscador de billeteras cada 12 h
+
+[Timer]
+OnCalendar=*-*-* 06,18:20:00 UTC
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,14 @@
+# Buscador de billeteras (wallet_scout.py --auto-add): corre solo cada 12 h, encuentra candidatas entre las que el laboratorio ya vio como KOL/smart money de GMGN y agrega a data/watch_manual.json
+# hasta 3 de las mejores que todavia no estaban (nunca mas de 3 por corrida, para que la lista crezca de a poco y se pueda revisar). Disparado por wallet-scout.timer.
+#   sudo cp wallet-scout.service.example /etc/systemd/system/wallet-scout.service && sudo systemctl daemon-reload
+[Unit]
+Description=HUNTER - buscador de billeteras (agrega candidatas a watch_manual.json)
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hunter
+EnvironmentFile=-/home/ubuntu/hunter/.gmgn_env
+ExecStart=/home/ubuntu/hunter/venv/bin/python wallet_scout.py --min-trades 15 --min-pnl 0.30 --min-winrate 0.45 --auto-add --max-add 3
+Nice=10
+OOMScoreAdjust=800
