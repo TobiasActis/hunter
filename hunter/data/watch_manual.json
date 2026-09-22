@@ -1,0 +1,6 @@
+{
+ "wallets": [
+  {"wallet": "FVZRwUp6E4m9jV4VumF8q7m8q3mF9fpikRrJSCCfFAdP", "gmgn_chain": "sol", "label": "compartida por el dueno 2026-09-22", "added_at": "2026-09-22T00:40:00+00:00",
+   "note": "GMGN wallet_stats 30d: realized_profit $6,756.81, realized_profit_pnl 0.877 (+87.7% sobre lo invertido), winrate 70% (31 tokens: 24 en 0-2x, 5 en -50%-0%, 1 en 2-5x, 1 en <-50%, 0 en >5x: sin outliers). All-time (wallet_profits): realized_profit $80,809 sobre costo $841,318 (+9.6%), 3955 compras / 5714 ventas (trader de mucho volumen, ventas parciales chicas). Tag de GMGN: launchpad_smart. Cuenta creada 2025-03-08, Twitter verificado con 954 seguidores. OJO: creator_token_count 2437 (esta wallet tambien LANZA tokens: podria ser deployer profesional, no solo trader)."}
+ ]
+}

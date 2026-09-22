@@ -617,6 +617,8 @@ async def run():
                 if key:
                     from core import kline_lab as kl
                     await kl.collect(client, key)
+                    from core import watch_wallets as ww
+                    await ww.poll(client, key)
             except Exception:
                 logger.exception("Atencion: error en el ciclo, reintenta")
             await asyncio.sleep(WORK_EVERY_S)
