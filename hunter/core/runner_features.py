@@ -5,6 +5,12 @@ Rasgos para anticipar "corredoras" (tokens que llegan a >= 3x en 1 h), calculado
 Estudio del 2026-09-21 (3.421 posiciones, v2-v5, solo curvas en ETH; entrenar en un periodo y evaluar en el otro, ambos sentidos): el 2% mejor por puntaje (~24 alertas/dia) acierta >= 3x el 27% de las veces contra 10.6% de base
 (lift 2.5x) y con salida amplia rindio +$9/op (IC95 [-0.0, +18.7]) en replay. NO esta probado hacia adelante: por eso el puntaje solo se GUARDA (modo sombra) y se mide despues; no decide nada.
 El mismo codigo lo usan el estudio y el puntaje en vivo (test_runner_features.py comprueba que da lo mismo que el estudio).
+
+2026-09-22: se probo apuntar "wl_hits" a data/trail_wallets.json (las 102 billeteras "con rastro") en vez de data/watch_wallets.json (top-50 por ganancia historica) y NO se adopto: (1) el periodo "viejo" de
+entrenamiento se solapa con la ventana de datos que se uso para armar trail_wallets.json, asi que cualquier correlacion ahi esta contaminada (se sabe de antemano que esas billeteras compraron corredoras de ESE
+mismo periodo); (2) en el periodo "nuevo" (limpio, un dia despues de la lista), wl_hits>0 solo aparecio en 1% de las alertas (17 de 1776): una lista estatica pierde vigencia muy rapido, la mayoria de esas
+billeteras ya no estaban comprando al dia siguiente. Revertido a data/watch_wallets.json (que aunque tampoco demostro ventaja neta al copiarlo, es mas estable/activo como feature). Para que las billeteras buenas
+mejoren de verdad la deteccion de memes hace falta una lista que se actualice sola (no una foto fija) -- ver wallet_trail_scout.py si existe, o candidato a construir.
 """
 import json
 import os
