@@ -58,9 +58,10 @@ TRACK_MIN_USD = 50.0
 TRACK_MAX_LAG_S = 600.0                                                                       # la lista trae las ultimas 100 operaciones (horas de antiguedad): solo cuentan las de los ultimos 10 min
 CTL_SAMPLE = 4
 SMALLCAP_PARAMS = {"interval": "24h", "min_created": "24h", "max_marketcap": 50000, "min_liquidity": 10000, "min_volume": 10000, "order_by": "volume", "direction": "desc"}      # el escaneo de un trader: > 24 h de edad, < $50K de capitalizacion, > $10K de liquidez y de volumen
+ESTABLISHED_PARAMS = {"interval": "24h", "min_marketcap": 100000, "min_liquidity": 20000, "min_volume": 50000, "order_by": "volume", "direction": "desc"}      # tokens ya migrados y activos (>= $100K): base para estudiar estrategias de tendencia con velas
 FRESH24_PARAMS = {"interval": "6h", "max_created": "24h", "max_marketcap": 50000, "min_liquidity": 10000, "min_volume": 10000, "order_by": "volume", "direction": "desc"}      # el mismo escaneo pero de otro trader con la edad AL REVES: <= 24 h, volumen de 6 h > $10K
 WAVE2_PARAMS = {"interval": "1h", "min_history_highest_marketcap": 150000, "min_marketcap": 30000, "max_marketcap": 40000, "min_liquidity": 10000, "min_volume": 10000, "order_by": "volume", "direction": "desc"}     # "segunda ola": llego a >= 150K de capitalizacion, ahora en 30-40K, con liquidez y volumen vivos
-SOURCES = ("DEX_BOOST", "DEX_PERFIL", "GECKO_TREND", "CTL", "GMGN_TREND", "GMGN_SMART", "GMGN_SMALLCAP", "GMGN_FRESH24", "GMGN_2NDWAVE", "GMGN_KOL", "GMGN_SMARTBUY")
+SOURCES = ("DEX_BOOST", "DEX_PERFIL", "GECKO_TREND", "CTL", "GMGN_TREND", "GMGN_SMART", "GMGN_SMALLCAP", "GMGN_FRESH24", "GMGN_2NDWAVE", "GMGN_ESTABLISHED", "GMGN_KOL", "GMGN_SMARTBUY")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS at_events (
@@ -395,7 +396,8 @@ async def fetch_sources(client, gmgn_key=None):
     if gmgn_key:
         for gch in GMGN_CHAINS:
             for source, extra, min_smart in (("GMGN_TREND", {}, None), ("GMGN_SMART", {"order_by": "smart_degen_count", "direction": "desc"}, GMGN_MIN_SMART),
-                                             ("GMGN_SMALLCAP", SMALLCAP_PARAMS, None), ("GMGN_FRESH24", FRESH24_PARAMS, None), ("GMGN_2NDWAVE", WAVE2_PARAMS, None)):
+                                             ("GMGN_SMALLCAP", SMALLCAP_PARAMS, None), ("GMGN_FRESH24", FRESH24_PARAMS, None), ("GMGN_2NDWAVE", WAVE2_PARAMS, None),
+                                             ("GMGN_ESTABLISHED", ESTABLISHED_PARAMS, None)):
                 try:
                     q = dict({"chain": gch, "interval": "1h", "limit": 50, "timestamp": int(time.time()), "client_id": str(uuid.uuid4())}, **extra)
                     js = await _get(client, GMGN_HOST + "/v1/market/rank", params=q, headers={"X-APIKEY": gmgn_key, "User-Agent": "hunter-paper-lab"})
@@ -612,6 +614,9 @@ async def run():
                 fe.track_trail()
                 fe.resolve_trail()
                 fe.resolve_runner()
+                if key:
+                    from core import kline_lab as kl
+                    await kl.collect(client, key)
             except Exception:
                 logger.exception("Atencion: error en el ciclo, reintenta")
             await asyncio.sleep(WORK_EVERY_S)
@@ -682,7 +687,7 @@ def report_text(path=None):
 # ------------------------------------------------------------------ dashboard (pestana "Atencion" de la vista de Memes)
 LABELS = {"DEX_BOOST": "DexScreener: boost pago", "DEX_PERFIL": "DexScreener: perfil nuevo (base)", "GECKO_TREND": "GeckoTerminal: pools en tendencia", "CTL": "Control: pools nuevos sin lista",
           "GMGN_TREND": "GMGN: tendencia 1 h", "GMGN_SMART": "GMGN: 3+ smart money", "GMGN_SMALLCAP": "Small caps > 24 h (escaneo 1)", "GMGN_FRESH24": "Small caps <= 24 h (escaneo 2)",
-          "GMGN_2NDWAVE": "Segunda ola (peak 150K, hoy 30-40K)", "GMGN_KOL": "GMGN: compra de KOL", "GMGN_SMARTBUY": "GMGN: compra de smart money"}
+          "GMGN_2NDWAVE": "Segunda ola (peak 150K, hoy 30-40K)", "GMGN_ESTABLISHED": "Establecidos (> $100K, ya migrados)", "GMGN_KOL": "GMGN: compra de KOL", "GMGN_SMARTBUY": "GMGN: compra de smart money"}
 _snap_cache = {"t": 0.0, "p": None, "v": None}
 
 
